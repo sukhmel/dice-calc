@@ -19,19 +19,26 @@ This is supposed to calculate everything by computing all possible outcomes and 
  * `M..N` for slice of sides (?) (short for `{M..N}`)
  * `{K..L,M,N,...}` for set of sides
  * infix `d` for throw of specified dice
- * infix `+`, '-', `*` for mathematical operations
+ * infix `+`, `-`, `*` for mathematical operations
+ * negation with `-` (?)
  * `.filter(...)` for filtering
  * filters:
-   * `high N` for N highest results
-   * `low N` for N lowest results
    * `> N` for results bigger than N
    * `< N` for results smaller than N
    * `in {...}` for results equalling to any value from a set
    * `except {...}` for results not from given set (maybe it's worth making a negation for a filter instead)
    * `duplicate N` for results that are duplicated at least N times (maybe there should be syntax for specifying several values and/or filters like `<` and `>`)
-   * `unique` for unique results
+ * `.unique` for unique results
+ * `.max(N)` for all dice with N highest ranks, e.g. [1,1,2,3,3].max(1) becomes [3,3]
+ * `.min(N)` same but N lowest ranks, e.g. [1,1,2,3,3].min(1) becomes [1,1]
+ * `.high(N)` for N highest results, e.g. [1,1,2,3,3].high(1) becomes [3]
+ * `.low(N)` for N lowest results, e.g. [1,1,2,3,3].low(1) becomes [1]
+ * `.deduplicate(N)` for removing excessive duplicates, maybe that should be a filter?
  * `throw(...).until(...).limit(...)` for a limited series of throws that are performed until some condition is met
- * `.count` for counting the amount of dice in a resultant events
+ * reducing operations:
+   * `.count` for counting the amount of dice in a resultant events
+   * `.sum` for summing all dice values
+   * `.mul` for multiplying all dice values (?)
  * `.retain(..)` for reducing the amount of dice in events by limiting the maximum
  * `.remove(..)` for reducing the amount of dice by removing a specified amount
  * `.sample(..)` for getting specified amount of throws from given configuration
