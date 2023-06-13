@@ -10,8 +10,8 @@ The plan is to have a calculator allowing for
 This is supposed to calculate everything by computing all possible outcomes and the amount of events that lead to this outcome with bigints, so memory consumption is going to be quite high, maybe there will be a way to optimize it somehow.
 
 ## Terminology
- * a **throw** is a specific event with given amount of dice, each having a specific side, e.g. [1, 2, 1, 1]. Since order is not preserved (for now?) those will always be ordered to simplify joining same throws
- * an **event** is a throw with the count of how many outcomes are calculated to lead to this event
+ * a **throw** is a vector of dice sides, each representing a different die, e.g. [1, 2, 1, 1]. Since order is not preserved (for now?) those will always be ordered to simplify joining same throws
+ * an **outcome** is a throw with the count of how many outcomes are calculated to lead to this event
  * a **configuration** is a full set of events, that allows to calculate probabilities by dividing event outcome count by total outcome count
 
 ## Current plan
@@ -19,16 +19,20 @@ This is supposed to calculate everything by computing all possible outcomes and 
  * `M..N` for slice of sides (?) (short for `{M..N}`)
  * `{K..L,M,N,...}` for set of sides
  * infix `d` for throw of specified dice
- * infix `+`, `-`, `*` for mathematical operations
+ * infix `+`, `-`, `*`, `/` for mathematical operations
  * negation with `-` (?)
  * `.filter(...)` for filtering
  * filters:
-   * `> N` for results bigger than N
-   * `< N` for results smaller than N
-   * `in {...}` for results equalling to any value from a set
-   * `except {...}` for results not from given set (maybe it's worth making a negation for a filter instead)
-   * `duplicate N` for results that are duplicated at least N times (maybe there should be syntax for specifying several values and/or filters like `<` and `>`)
- * `.unique` for unique results
+   * Basic:
+     * `> N` for results bigger than N
+     * `< N` for results smaller than N
+     * `= N` for results equal to N
+     * `in {...}` for results equalling to any value from a set
+     * `not`, `and`, `or` for combining filters
+   * Complex
+     * `duplicated [basic filter]` for results that are duplicated once or times fitting basic filter
+     * `unique [basic filter]` for unique results, occurring no more than once or times fitting basic filter
+     * `times basic filter` for results that occur exactly the amount of times satisfying basic filter
  * `.max(N)` for all dice with N highest ranks, e.g. [1,1,2,3,3].max(1) becomes [3,3]
  * `.min(N)` same but N lowest ranks, e.g. [1,1,2,3,3].min(1) becomes [1,1]
  * `.high(N)` for N highest results, e.g. [1,1,2,3,3].high(1) becomes [3]
@@ -49,6 +53,7 @@ This is supposed to calculate everything by computing all possible outcomes and 
    * `last N`
    * `permutation N`
  * floating point sides, as rational sides are possible by dividing a throw by a specific value
+ * string sides, that'd be cool to have, although it would limit operations possible on configurations involving string dice
 
 ## Some thoughts
  * `N d {S}` is equivalent to `S * 1 d {S}`

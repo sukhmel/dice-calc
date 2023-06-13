@@ -1,5 +1,5 @@
 [workspace]
 members = [
     "dice-calc-cli",
-    "dice-calc-cli",
+    "dice-calc-lib",
 ]
