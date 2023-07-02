@@ -45,7 +45,15 @@ This is supposed to calculate everything by computing all possible outcomes and 
    * `.mul` for multiplying all dice values (?)
  * `.retain(..)` for reducing the amount of dice in events by limiting the maximum
  * `.remove(..)` for reducing the amount of dice by removing a specified amount
- * `.sample(..)` for getting specified amount of throws from given configuration
+ * `.union(..)` for uniting the throws in two configurations
+ * `.intersection(..)` for intersecting the throws in two configurations
+ * `.difference(..)` for subtracting one configuration's throws from another configuration's
+ * `.sample(N)` for getting specified amount of throws from given configuration
+
+ Also features that I'd like to try implementing:
+ * Tab completion for calculator expression input
+ * colorization of inputted keywords with cursor manipulation and rewriting the input
+ * string sides, that'd be cool to have, although it would limit operations possible on configurations involving string dice
 
 ## Not planned (for now)
  * preserving dice order and functions that will depend on this
@@ -53,8 +61,7 @@ This is supposed to calculate everything by computing all possible outcomes and 
    * `last N`
    * `permutation N`
  * floating point sides, as rational sides are possible by dividing a throw by a specific value
- * string sides, that'd be cool to have, although it would limit operations possible on configurations involving string dice
-
+ 
 ## Some thoughts
  * `N d {S}` is equivalent to `S * 1 d {S}`
  * `<events> <math operation> <number>` seems to have `<number>` equivalent to `<number> d 1`
