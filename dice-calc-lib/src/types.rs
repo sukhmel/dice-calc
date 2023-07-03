@@ -72,8 +72,8 @@ pub enum Expr {
     Value(Value),
     #[display("{{{0}}}")]
     Sides(Sides),
-    #[display(".{0}")]
-    DotExpr(Box<DotExpr>), // .X
+    #[display("{0}.{1}")]
+    Call(Box<Expr>, Box<DotExpr>), // .X
     #[display("{0} d {1}")]
     Throw(Box<Expr>, Box<Expr>), // X d Y, throw(Y).limit(X)
     #[display("throw({0}).until({1}).limit({2})")]
@@ -92,36 +92,42 @@ pub enum Expr {
 
 #[derive(Debug, Display, Eq, PartialEq)]
 pub enum DotExpr {
-    #[display("{0}.filter({1})")]
-    Filter(Expr, Filter),
-    #[display("{0}.count()")]
-    Count(Expr),
-    #[display("{0}.sum()")]
-    Sum(Expr),
-    #[display("{0}.product()")]
-    Prod(Expr),
-    #[display("{0}.deduplicate({1})")]
-    Deduplicate(Expr, Expr),
-    #[display("{0}.low({1})")]
-    Low(Expr, Expr),
-    #[display("{0}.high({1})")]
-    High(Expr, Expr),
-    #[display("{0}.min({1})")]
-    Min(Expr, Expr),
-    #[display("{0}.max({1})")]
-    Max(Expr, Expr),
-    #[display("{0}.retain({1})")]
-    Retain(Expr, Expr),
-    #[display("{0}.remove({1})")]
-    Remove(Expr, Expr),
-    #[display("{0}.union({1})")]
-    Union(Expr, Expr),
-    #[display("{0}.intersect({1})")]
-    Intersection(Expr, Expr),
-    #[display("{0}.diff({1})")]
-    Difference(Expr, Expr),
-    #[display("{0}.sample({1})")]
-    Sample(Expr, usize),
+    #[display("count()")]
+    Count(),
+    #[display("sum()")]
+    Sum(),
+    #[display("product()")]
+    Prod(),
+    /// Leave only conforming elements
+    #[display("filter({0})")]
+    Filter(Filter),
+    /// Deduplicate elements leaving a maximum of N elements, default is 1
+    #[display("deduplicate({0})")]
+    Deduplicate(Expr),
+    /// Leave only N lowest rank elements, default is 1
+    #[display("low({0})")]
+    Low(Expr),
+    /// Leave only N highest rank elements, default is 1
+    #[display("high({0})")]
+    High(Expr),
+    /// Leave only N smallest elements, default is 1
+    #[display("min({0})")]
+    Min(Expr),
+    /// Leave only N biggest elements, default is 1
+    #[display("max({0})")]
+    Max(Expr),
+    #[display("retain({0})")]
+    Retain(Expr),
+    #[display("remove({0})")]
+    Remove(Expr),
+    #[display("union({0})")]
+    Union(Expr),
+    #[display("intersect({0})")]
+    Intersection(Expr),
+    #[display("diff({0})")]
+    Difference(Expr),
+    #[display("sample({0})")]
+    Sample(usize),
 }
 
 #[derive(Debug, Display, Eq, PartialEq)]
