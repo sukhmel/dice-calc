@@ -1,5 +1,5 @@
 use super::*;
-use crate::parser::{dot_expr, sides};
+use crate::parser::{basic_filter, dot_expr, filter, sides};
 
 #[test]
 fn test_sides() {
@@ -69,6 +69,85 @@ fn test_sides() {
             ),
             String::from(r#"1..3; 6,8..22; 7; "some other"; "new""#)
         ))
+    );
+}
+
+#[test]
+fn test_filter() {
+    assert_eq!(
+        filter(r#"  not (  duplicated( ) and unique( = 3 )) or (times( =1 ) )"#).map(|(i, x)| (
+            i,
+            format!("{:#?}", x),
+            format!("{}", x)
+        )),
+        Ok((
+            "",
+            String::from(
+                r#"Logical(
+    Or(
+        Logical(
+            Not(
+                Parenthesis(
+                    Logical(
+                        And(
+                            Duplicated,
+                            UniqueTimes(
+                                Equal(
+                                    Value(
+                                        Rational(
+                                            Ratio {
+                                                numer: 3,
+                                                denom: 1,
+                                            },
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        Parenthesis(
+            Times(
+                Equal(
+                    Value(
+                        Rational(
+                            Ratio {
+                                numer: 1,
+                                denom: 1,
+                            },
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+)"#
+            ),
+            String::from(r#"not (duplicated() and unique(= 3)) or (times(= 1))"#)
+        ))
+    );
+}
+
+#[test]
+fn test_basic_filter() {
+    assert_eq!(
+        basic_filter(r#" not < 1 "#).map(|(i, x)| (i, format!("{:#?}", x), format!("{}", x))),
+        Ok(("", String::from(r#"Logical(
+    Not(
+        LessThan(
+            Value(
+                Rational(
+                    Ratio {
+                        numer: 1,
+                        denom: 1,
+                    },
+                ),
+            ),
+        ),
+    ),
+)"#), String::from(r#"not < 1"#)))
     );
 }
 

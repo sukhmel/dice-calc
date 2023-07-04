@@ -1,13 +1,20 @@
-use crate::string_parser::parse_string;
 use crate::types::{
-    BasicFilter, DotExpr, Expr, Filter, LogicFilter, NumValue, Operation, Sequence, Sides,
-    StepSequence, Value,
+    BasicFilter, DotExpr, Expr, Filter, LogicFilter, LogicOperator, NumValue, Operator, Sequence,
+    Sides, StepSequence, Value,
 };
+use num::range;
 use std::str::FromStr;
-use winnow::ascii::{digit1 as digit, multispace0 as spaces};
-use winnow::combinator::cut_err;
+use winnow::ascii::{
+    alphanumeric1 as alphanumeric, digit1 as digit, escaped, multispace0 as spaces,
+};
 use winnow::error::{ErrMode, Error, ErrorKind};
+use winnow::token::one_of;
 use winnow::{combinator, IResult, Parser};
+use crate::types::Filter::Basic;
+
+pub fn string(i: &str) -> IResult<&str, &str> {
+    escaped(alphanumeric, '\\', one_of(r#""\"#)).parse_next(i)
+}
 
 pub fn sides(i: &str) -> IResult<&str, Sides> {
     let (i, initial) = side(i)?;
@@ -15,6 +22,7 @@ pub fn sides(i: &str) -> IResult<&str, Sides> {
 
     Ok((i, fold_sides(initial, remainder)))
 }
+
 pub fn side(i: &str) -> IResult<&str, Sides> {
     combinator::alt((
         combinator::separated_pair(number, separator(".."), number)
@@ -33,8 +41,8 @@ pub fn side(i: &str) -> IResult<&str, Sides> {
         }),
         combinator::delimited(spaces, number, spaces)
             .map(|value| Sides::Value(Value::Rational(value))),
-        combinator::delimited(spaces, parse_string, spaces)
-            .map(|value| Sides::Value(Value::String(value))),
+        combinator::delimited(spaces, combinator::delimited("\"", string, "\""), spaces)
+            .map(|value| Sides::Value(Value::String(value.to_string()))),
     ))
     .parse_next(i)
 }
@@ -55,40 +63,41 @@ pub fn separator(sep: &'static str) -> impl Fn(&str) -> IResult<&str, ()> + '_ {
 
 pub fn dot_expr(i: &str) -> IResult<&str, Expr> {
     let (i, value) = combinator::terminated(expr, separator(".")).parse_next(i)?;
-    combinator::alt((
+    // If there was a dot, anything unexpected is a failure
+    combinator::cut_err(combinator::alt((
         combinator::delimited("sum(", spaces, ")").map(|_| DotExpr::Sum()),
         combinator::delimited("count(", spaces, ")").map(|_| DotExpr::Count()),
         combinator::delimited("product(", spaces, ")").map(|_| DotExpr::Prod()),
-        combinator::delimited("deduplicate(", spaces, ")")
-            .map(|_| DotExpr::Deduplicate(Expr::Value(Value::Rational(1.into())))),
-        combinator::preceded(
+        combinator::delimited(
             "deduplicate(",
-            combinator::terminated(expr, ")").map(|expr| DotExpr::Deduplicate(expr)),
-        ),
-        combinator::delimited("low(", spaces, ")")
-            .map(|_| DotExpr::Low(Expr::Value(Value::Rational(1.into())))),
-        combinator::preceded(
+            combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Rational(1.into()))))),
+            ")",
+        )
+        .map(|expr| DotExpr::Deduplicate(expr)),
+        combinator::delimited(
             "low(",
-            combinator::terminated(expr, ")").map(|expr| DotExpr::Low(expr)),
-        ),
-        combinator::delimited("high(", spaces, ")")
-            .map(|_| DotExpr::High(Expr::Value(Value::Rational(1.into())))),
-        combinator::preceded(
+            combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Rational(1.into()))))),
+            ")",
+        )
+        .map(|expr| DotExpr::Low(expr)),
+        combinator::delimited(
             "high(",
-            combinator::terminated(expr, ")").map(|expr| DotExpr::High(expr)),
-        ),
-        combinator::delimited("min(", spaces, ")")
-            .map(|_| DotExpr::Min(Expr::Value(Value::Rational(1.into())))),
-        combinator::preceded(
+            combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Rational(1.into()))))),
+            ")",
+        )
+        .map(|expr| DotExpr::High(expr)),
+        combinator::delimited(
             "min(",
-            combinator::terminated(expr, ")").map(|expr| DotExpr::Min(expr)),
-        ),
-        combinator::delimited("max(", spaces, ")")
-            .map(|_| DotExpr::Max(Expr::Value(Value::Rational(1.into())))),
-        combinator::preceded(
+            combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Rational(1.into()))))),
+            ")",
+        )
+        .map(|expr| DotExpr::Min(expr)),
+        combinator::delimited(
             "max(",
-            combinator::terminated(expr, ")").map(|expr| DotExpr::Max(expr)),
-        ),
+            combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Rational(1.into()))))),
+            ")",
+        )
+        .map(|expr| DotExpr::Max(expr)),
         combinator::preceded(
             "retain(",
             combinator::terminated(expr, ")").map(|expr| DotExpr::Retain(expr)),
@@ -119,38 +128,129 @@ pub fn dot_expr(i: &str) -> IResult<&str, Expr> {
                 .try_map(FromStr::from_str)
                 .map(|expr| DotExpr::Sample(expr)),
         ),
-    ))
+    )))
     .parse_next(i)
     .map(|(i, args)| (i, Expr::Call(Box::new(value), Box::new(args))))
 }
 
-pub fn filter(_i: &str) -> IResult<&str, Filter> {
-    todo!("parse filter")
+pub fn filter(i: &str) -> IResult<&str, Filter> {
+    let (i, initial) = predicate.parse_next(i)?;
+    println!("{i}, {initial}");
+    let (i, remainder) = combinator::repeat(0.., |i| {
+        let (i, operation) = combinator::alt((
+            combinator::delimited(spaces, "and", spaces),
+            combinator::delimited(spaces, "or", spaces),
+        ))
+        .parse_next(i)?;
+        println!("{i}, {operation}");
+        let op = match operation {
+            "and" => LogicOperator::And,
+            "or" => LogicOperator::Or,
+            _ => unreachable!("combinator should only return given values"),
+        };
+        predicate.parse_next(i).map(|(i, e)| (i, (op, e)))
+    })
+    .parse_next(i)?;
+
+    Ok((i, fold_filters(initial, remainder)))
 }
-//
-// pub fn logic_filter<T>(i: &str) -> IResult<&str, LogicFilter<T>> {
-//
-// }
-//
-// pub fn basic_filter(i: &str) -> IResult<&str, BasicFilter> {
-//
-// }
+
+pub fn predicate(i: &str) -> IResult<&str, Filter> {
+    combinator::delimited(
+        spaces,
+        combinator::alt((
+            combinator::preceded(combinator::terminated("not", spaces), predicate)
+                .map(|f| Filter::Logical(LogicFilter::Not(Box::new(f)))),
+            basic_filter.map(|f| Filter::Basic(f)),
+            combinator::delimited(
+                "duplicated(",
+                combinator::alt((
+                    basic_filter.map(|f| Filter::DuplicatedTimes(f)),
+                    spaces.map(|_| Filter::Duplicated()),
+                )),
+                ")",
+            ),
+            combinator::delimited(
+                "unique(",
+                combinator::alt((
+                    basic_filter.map(|f| Filter::UniqueTimes(f)),
+                    spaces.map(|_| Filter::Unique()),
+                )),
+                ")",
+            ),
+            combinator::delimited(
+                "times(",
+                combinator::delimited(spaces, basic_filter.map(|f| Filter::Times(f)), spaces),
+                ")",
+            ),
+            logic_parens,
+        )),
+        spaces,
+    )
+    .parse_next(i)
+}
+
+// TODO: Split onto separate levels to make `and` and `or` precedence correct
+pub fn basic_filter(i: &str) -> IResult<&str, BasicFilter> {
+    let (i, initial) = basic_predicate.parse_next(i)?;
+    let (i, remainder) = combinator::repeat(0.., |i| {
+        let (i, operation) = combinator::alt((
+            combinator::delimited(spaces, "and", spaces),
+            combinator::delimited(spaces, "or", spaces),
+        ))
+        .parse_next(i)?;
+        let op = match operation {
+            "and" => LogicOperator::And,
+            "or" => LogicOperator::Or,
+            _ => unreachable!("combinator should only return given values"),
+        };
+        basic_predicate.parse_next(i).map(|(i, e)| (i, (op, e)))
+    })
+    .parse_next(i)?;
+
+    Ok((i, fold_basic_filters(initial, remainder)))
+}
+
+pub fn basic_predicate(i: &str) -> IResult<&str, BasicFilter> {
+    combinator::delimited(
+        spaces,
+        combinator::alt((
+            combinator::preceded(combinator::terminated("not", spaces), basic_predicate)
+                .map(|f| BasicFilter::Logical(LogicFilter::Not(Box::new(f)))),
+            basic_check,
+            basic_logic_parens,
+        )),
+        spaces,
+    )
+    .parse_next(i)
+}
+
+pub fn basic_check(i: &str) -> IResult<&str, BasicFilter> {
+    let (i, op) = combinator::alt(("<", ">", "=", "in")).parse_next(i)?;
+    let (i, expr) = expr.parse_next(i)?;
+    Ok((
+        i,
+        match op {
+            ">" => BasicFilter::GreaterThan(expr),
+            "<" => BasicFilter::LessThan(expr),
+            "=" => BasicFilter::Equal(expr),
+            "in" => BasicFilter::In(expr),
+            _ => unreachable!("combinator should only return given values"),
+        },
+    ))
+}
 
 pub fn expr(i: &str) -> IResult<&str, Expr> {
     let (i, initial) = term(i)?;
-    let (i, remainder) = combinator::repeat(
-        0..,
-        combinator::alt((
-            |i| {
-                let (i, add) = combinator::preceded("+", term).parse_next(i)?;
-                Ok((i, (Operation::Add, add)))
-            },
-            |i| {
-                let (i, sub) = combinator::preceded("-", term).parse_next(i)?;
-                Ok((i, (Operation::Sub, sub)))
-            },
-        )),
-    )
+    let (i, remainder) = combinator::repeat(0.., |i| {
+        let (i, operation) = combinator::alt(("+", "-")).parse_next(i)?;
+        let op = match operation {
+            "+" => Operator::Add,
+            "-" => Operator::Sub,
+            _ => unreachable!("combinator should only return given values"),
+        };
+        term.parse_next(i).map(|(i, e)| (i, (op, e)))
+    })
     .parse_next(i)?;
 
     Ok((i, fold_expressions(initial, remainder)))
@@ -158,19 +258,15 @@ pub fn expr(i: &str) -> IResult<&str, Expr> {
 
 fn term(i: &str) -> IResult<&str, Expr> {
     let (i, initial) = factor(i)?;
-    let (i, remainder) = combinator::repeat(
-        0..,
-        combinator::alt((
-            |i| {
-                let (i, mul) = combinator::preceded("*", factor).parse_next(i)?;
-                Ok((i, (Operation::Mul, mul)))
-            },
-            |i| {
-                let (i, div) = combinator::preceded("/", factor).parse_next(i)?;
-                Ok((i, (Operation::Div, div)))
-            },
-        )),
-    )
+    let (i, remainder) = combinator::repeat(0.., |i| {
+        let (i, operation) = combinator::alt(("*", "/")).parse_next(i)?;
+        let op = match operation {
+            "*" => Operator::Mul,
+            "/" => Operator::Div,
+            _ => unreachable!("combinator should only return given values"),
+        };
+        factor.parse_next(i).map(|(i, e)| (i, (op, e)))
+    })
     .parse_next(i)?;
 
     Ok((i, fold_expressions(initial, remainder)))
@@ -195,6 +291,28 @@ fn parens(i: &str) -> IResult<&str, Expr> {
     .parse_next(i)
 }
 
+fn logic_parens(i: &str) -> IResult<&str, Filter> {
+    combinator::delimited(
+        spaces,
+        combinator::delimited("(", filter.map(|e| Filter::Parenthesis(Box::new(e))), ")"),
+        spaces,
+    )
+    .parse_next(i)
+}
+
+fn basic_logic_parens(i: &str) -> IResult<&str, BasicFilter> {
+    combinator::delimited(
+        spaces,
+        combinator::delimited(
+            "(",
+            basic_filter.map(|e| BasicFilter::Parenthesis(Box::new(e))),
+            ")",
+        ),
+        spaces,
+    )
+    .parse_next(i)
+}
+
 fn fold_sides(initial: Sides, remainder: Vec<Sides>) -> Sides {
     if remainder.is_empty() {
         initial
@@ -205,15 +323,42 @@ fn fold_sides(initial: Sides, remainder: Vec<Sides>) -> Sides {
     }
 }
 
-fn fold_expressions(initial: Expr, remainder: Vec<(Operation, Expr)>) -> Expr {
+fn fold_expressions(initial: Expr, remainder: Vec<(Operator, Expr)>) -> Expr {
     remainder.into_iter().fold(initial, |acc, pair| {
         let (operation, expr) = pair;
         match operation {
-            Operation::Add => Expr::Add(Box::new(acc), Box::new(expr)),
-            Operation::Sub => Expr::Sub(Box::new(acc), Box::new(expr)),
-            Operation::Div => Expr::Div(Box::new(acc), Box::new(expr)),
-            Operation::Mul => Expr::Mul(Box::new(acc), Box::new(expr)),
-            Operation::Throw => Expr::Throw(Box::new(acc), Box::new(expr)),
+            Operator::Add => Expr::Add(Box::new(acc), Box::new(expr)),
+            Operator::Sub => Expr::Sub(Box::new(acc), Box::new(expr)),
+            Operator::Div => Expr::Div(Box::new(acc), Box::new(expr)),
+            Operator::Mul => Expr::Mul(Box::new(acc), Box::new(expr)),
+            Operator::Throw => Expr::Throw(Box::new(acc), Box::new(expr)),
+        }
+    })
+}
+
+fn fold_filters(initial: Filter, remainder: Vec<(LogicOperator, Filter)>) -> Filter {
+    remainder.into_iter().fold(initial, |acc, pair| {
+        let (operation, expr) = pair;
+        match operation {
+            LogicOperator::And => Filter::Logical(LogicFilter::And(Box::new(acc), Box::new(expr))),
+            LogicOperator::Or => Filter::Logical(LogicFilter::Or(Box::new(acc), Box::new(expr))),
+        }
+    })
+}
+
+fn fold_basic_filters(
+    initial: BasicFilter,
+    remainder: Vec<(LogicOperator, BasicFilter)>,
+) -> BasicFilter {
+    remainder.into_iter().fold(initial, |acc, pair| {
+        let (operation, expr) = pair;
+        match operation {
+            LogicOperator::And => {
+                BasicFilter::Logical(LogicFilter::And(Box::new(acc), Box::new(expr)))
+            }
+            LogicOperator::Or => {
+                BasicFilter::Logical(LogicFilter::Or(Box::new(acc), Box::new(expr)))
+            }
         }
     })
 }

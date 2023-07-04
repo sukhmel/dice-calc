@@ -135,19 +135,21 @@ pub enum Filter {
     #[display("{0}")]
     Basic(BasicFilter),
 
+    #[display("duplicated()")]
+    Duplicated(),
     #[display("duplicated({0})")]
-    Duplicated(Expr),
-    #[display("duplicated({0} {1})")]
-    DuplicatedTimes(Expr, BasicFilter),
+    DuplicatedTimes(BasicFilter),
+    #[display("unique()")]
+    Unique(),
     #[display("unique({0})")]
-    Unique(Expr),
-    #[display("unique({0} {1})")]
-    UniqueTimes(Expr, BasicFilter),
-    #[display("times({0} {1})")]
-    Times(Expr, BasicFilter),
+    UniqueTimes(BasicFilter),
+    #[display("times({0})")]
+    Times(BasicFilter),
 
     #[display("{0}")]
     Logical(LogicFilter<Filter>),
+    #[display("({0})")]
+    Parenthesis(Box<Filter>),
 }
 
 #[derive(Debug, Display, Eq, PartialEq)]
@@ -158,14 +160,20 @@ pub enum LogicFilter<T: Eq + PartialEq + std::fmt::Display> {
     And(Box<T>, Box<T>),
     #[display("{0} or {1}")]
     Or(Box<T>, Box<T>),
-    #[display("({0})")]
-    Parenthesis(Box<T>),
+}
+
+#[derive(Debug, Display, Eq, PartialEq, Ord, PartialOrd)]
+pub enum LogicOperator {
+    #[display("and")]
+    And,
+    #[display("or")]
+    Or,
 }
 
 #[derive(Debug, Display, Eq, PartialEq)]
 pub enum BasicFilter {
     #[display("= {0}")]
-    Eq(Expr),
+    Equal(Expr),
     #[display("> {0}")]
     GreaterThan(Expr),
     #[display("< {0}")]
@@ -176,10 +184,12 @@ pub enum BasicFilter {
 
     #[display("{0}")]
     Logical(LogicFilter<BasicFilter>),
+    #[display("({0})")]
+    Parenthesis(Box<BasicFilter>),
 }
 
 #[derive(Debug, Display, Eq, PartialEq, Ord, PartialOrd)]
-pub enum Operation {
+pub enum Operator {
     #[display("+")]
     Add,
     #[display("-")]
