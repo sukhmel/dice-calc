@@ -43,25 +43,17 @@ impl Configuration {
 }
 
 #[derive(Debug, Display, Eq, PartialEq)]
-#[display("{0}..{1}")]
-pub struct Sequence(pub NumValue, pub NumValue);
-
-#[derive(Debug, Display, Eq, PartialEq)]
-#[display("{first},{second}..{last}")]
-pub struct StepSequence {
-    pub first: NumValue,
-    pub second: NumValue,
-    pub last: NumValue,
-}
-
-#[derive(Debug, Display, Eq, PartialEq)]
 pub enum Sides {
     #[display("{0}")]
     Value(Value),
-    #[display("{0}")]
-    Sequence(Sequence),
-    #[display("{0}")]
-    StepSequence(StepSequence),
+    #[display("{0}..{1}")]
+    Sequence(NumValue, NumValue),
+    #[display("{first},{second}..{last}")]
+    StepSequence {
+        first: NumValue,
+        second: NumValue,
+        last: NumValue,
+    },
     #[display("{0}; {1}")]
     Union(Box<Sides>, Box<Sides>),
 }
@@ -74,7 +66,7 @@ pub enum Expr {
     Sides(Sides),
     #[display("{0}.{1}")]
     Call(Box<Expr>, Box<DotExpr>), // .X
-    #[display("{0} d {1}")]
+    #[display("{1} d {0}")]
     Throw(Box<Expr>, Box<Expr>), // X d Y, throw(Y).limit(X)
     #[display("throw({0}).until({1}).limit({2})")]
     Until(Box<Expr>, Box<Filter>, Box<Expr>), // throw(X).until(Y).limit(Z)
@@ -130,6 +122,7 @@ pub enum DotExpr {
     Sample(usize),
 }
 
+/// Todo: split into Filters that can be used for throwing until, and the rest
 #[derive(Debug, Display, Eq, PartialEq)]
 pub enum Filter {
     #[display("{0}")]
