@@ -4,6 +4,7 @@ use crate::types::{
     Value,
 };
 use num::range;
+use std::fmt::Display;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -156,25 +157,13 @@ pub fn dot_expr(i: &str) -> IResult<&str, DotExpr> {
 }
 
 pub fn filter(i: &str) -> IResult<&str, Filter> {
-    let (i, initial) = predicate.parse_next(i)?;
-    println!("{i}, {initial}");
-    let (i, remainder) = combinator::repeat(0.., |i| {
-        let (i, operation) = combinator::alt((
-            combinator::delimited(spaces, "and", spaces),
-            combinator::delimited(spaces, "or", spaces),
-        ))
-        .parse_next(i)?;
-        println!("{i}, {operation}");
-        let op = match operation {
-            "and" => LogicOperator::And,
-            "or" => LogicOperator::Or,
-            _ => unreachable!("combinator should only return given values"),
-        };
-        predicate.parse_next(i).map(|(i, e)| (i, (op, e)))
-    })
-    .parse_next(i)?;
-
-    Ok((i, fold_filters(initial, remainder)))
+    generic_filter(
+        generic_filter(predicate, Filter::Logical, || "and", |_| LogicOperator::And),
+        Filter::Logical,
+        || "or",
+        |_| LogicOperator::Or,
+    )
+    .parse_next(i)
 }
 
 pub fn predicate(i: &str) -> IResult<&str, Filter> {
@@ -212,25 +201,49 @@ pub fn predicate(i: &str) -> IResult<&str, Filter> {
     .parse_next(i)
 }
 
-// TODO: Split onto separate levels to make `and` and `or` precedence correct
 pub fn basic_filter(i: &str) -> IResult<&str, BasicFilter> {
-    let (i, initial) = basic_predicate.parse_next(i)?;
-    let (i, remainder) = combinator::repeat(0.., |i| {
-        let (i, operation) = combinator::alt((
-            combinator::delimited(spaces, "and", spaces),
-            combinator::delimited(spaces, "or", spaces),
-        ))
-        .parse_next(i)?;
-        let op = match operation {
-            "and" => LogicOperator::And,
-            "or" => LogicOperator::Or,
-            _ => unreachable!("combinator should only return given values"),
-        };
-        basic_predicate.parse_next(i).map(|(i, e)| (i, (op, e)))
-    })
-    .parse_next(i)?;
+    generic_filter(
+        generic_filter(basic_predicate, BasicFilter::Logical, || "and", |_| LogicOperator::And),
+        BasicFilter::Logical,
+        || "or",
+        |_| LogicOperator::Or,
+    )
+        .parse_next(i)
+}
 
-    Ok((i, fold_basic_filters(initial, remainder)))
+/// Parses logical expressions using parser inclusion level for separating precedence
+///
+/// ## Input
+/// * `parser` should be either another `generic_filter` or the specific parser to target type
+/// * `wrapper` is used to wrap [`LogicFilter<T>`] to get result of target type T
+/// * `op` is used to generate parser that produces operators. It could be simple if there's only
+///     one operator, but that may change in the future
+/// * `selector` is used to map results of operator parsing to specific [`LogicOperator`]
+pub fn generic_filter<'a, T, P, W, G, Op, S>(
+    mut parser: P,
+    wrapper: W,
+    op: G,
+    selector: S,
+) -> impl FnMut(&'a str) -> IResult<&'a str, T>
+where
+    T: Eq + PartialEq + Display,
+    P: FnMut(&'a str) -> IResult<&'a str, T>,
+    W: Fn(LogicFilter<T>) -> T,
+    G: Fn() -> Op,
+    Op: Parser<&'a str, &'a str, Error<&'a str>>,
+    S: Fn(&'a str) -> LogicOperator,
+{
+    move |i| {
+        let (i, initial) = parser.parse_next(i)?;
+        let (i, remainder) = combinator::repeat(0.., |i| {
+            let (i, operation) = combinator::delimited(spaces, op(), spaces).parse_next(i)?;
+            let op = selector(operation);
+            parser.parse_next(i).map(|(i, e)| (i, (op, e)))
+        })
+        .parse_next(i)?;
+
+        Ok((i, fold_filters(initial, remainder, |input| wrapper(input))))
+    }
 }
 
 pub fn basic_predicate(i: &str) -> IResult<&str, BasicFilter> {
@@ -355,29 +368,16 @@ fn fold_expressions(initial: Expr, remainder: Vec<(Operator, Expr)>) -> Expr {
     })
 }
 
-fn fold_filters(initial: Filter, remainder: Vec<(LogicOperator, Filter)>) -> Filter {
+fn fold_filters<T: Eq + PartialEq + Display>(
+    initial: T,
+    remainder: Vec<(LogicOperator, T)>,
+    wrapper: impl Fn(LogicFilter<T>) -> T,
+) -> T {
     remainder.into_iter().fold(initial, |acc, pair| {
         let (operation, expr) = pair;
         match operation {
-            LogicOperator::And => Filter::Logical(LogicFilter::And(Box::new(acc), Box::new(expr))),
-            LogicOperator::Or => Filter::Logical(LogicFilter::Or(Box::new(acc), Box::new(expr))),
-        }
-    })
-}
-
-fn fold_basic_filters(
-    initial: BasicFilter,
-    remainder: Vec<(LogicOperator, BasicFilter)>,
-) -> BasicFilter {
-    remainder.into_iter().fold(initial, |acc, pair| {
-        let (operation, expr) = pair;
-        match operation {
-            LogicOperator::And => {
-                BasicFilter::Logical(LogicFilter::And(Box::new(acc), Box::new(expr)))
-            }
-            LogicOperator::Or => {
-                BasicFilter::Logical(LogicFilter::Or(Box::new(acc), Box::new(expr)))
-            }
+            LogicOperator::And => wrapper(LogicFilter::And(Box::new(acc), Box::new(expr))),
+            LogicOperator::Or => wrapper(LogicFilter::Or(Box::new(acc), Box::new(expr))),
         }
     })
 }

@@ -156,6 +156,115 @@ fn test_filter() {
 }
 
 #[test]
+fn test_filter_precedence() {
+    assert_eq!(
+        basic_filter(r#"not = 1 and < 2 or not < 5 or > 10 and < 20 and not = 17"#).map(|(i, x)| (
+            i,
+            format!("{:#?}", x),
+            format!("{}", x)
+        )),
+        Ok((
+            "",
+            String::from(
+                r#"Logical(
+    Or(
+        Logical(
+            Or(
+                Logical(
+                    And(
+                        Logical(
+                            Not(
+                                Equal(
+                                    Value(
+                                        Rational(
+                                            Ratio {
+                                                numer: 1,
+                                                denom: 1,
+                                            },
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        LessThan(
+                            Value(
+                                Rational(
+                                    Ratio {
+                                        numer: 2,
+                                        denom: 1,
+                                    },
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                Logical(
+                    Not(
+                        LessThan(
+                            Value(
+                                Rational(
+                                    Ratio {
+                                        numer: 5,
+                                        denom: 1,
+                                    },
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        Logical(
+            And(
+                Logical(
+                    And(
+                        GreaterThan(
+                            Value(
+                                Rational(
+                                    Ratio {
+                                        numer: 10,
+                                        denom: 1,
+                                    },
+                                ),
+                            ),
+                        ),
+                        LessThan(
+                            Value(
+                                Rational(
+                                    Ratio {
+                                        numer: 20,
+                                        denom: 1,
+                                    },
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                Logical(
+                    Not(
+                        Equal(
+                            Value(
+                                Rational(
+                                    Ratio {
+                                        numer: 17,
+                                        denom: 1,
+                                    },
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+)"#
+            ),
+            String::from(r#"not = 1 and < 2 or not < 5 or > 10 and < 20 and not = 17"#)
+        ))
+    );
+}
+
+#[test]
 fn test_basic_filter() {
     assert_eq!(
         basic_filter(r#" not < 1 "#).map(|(i, x)| (i, format!("{:#?}", x), format!("{}", x))),
@@ -234,11 +343,7 @@ fn test_dot_expr() {
     );
 
     assert_eq!(
-        expr(r#"2 . deduplicate( 5 )"#).map(|(i, x)| (
-            i,
-            format!("{:#?}", x),
-            format!("{}", x)
-        )),
+        expr(r#"2 . deduplicate( 5 )"#).map(|(i, x)| (i, format!("{:#?}", x), format!("{}", x))),
         Ok((
             "",
             r#"Call(
