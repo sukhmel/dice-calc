@@ -15,9 +15,10 @@ This is supposed to calculate everything by computing all possible outcomes and 
  * a **configuration** is a full set of events, that allows to calculate probabilities by dividing event outcome count by total outcome count
 
 ## Current plan
- * `N` for N sides (short for `{1..N}`)
+ * `N` for N sides (short for `{1..N}`) — this may be a problem, likely this will need to be implemented in AST processing
  * `M..N` for slice of sides (?) (short for `{M..N}`)
- * `{K..L,M,N,...}` for set of sides
+ * `{K..L;M;N}` for set of sides
+ * `V x N` for repeated side value, i.e. `1 x 3` or `{1 x 3}` is the same as `{1; 1; 1}`
  * infix `d` for throw of specified dice
  * infix `+`, `-`, `*`, `/` for mathematical operations
  * negation with `-` (?)

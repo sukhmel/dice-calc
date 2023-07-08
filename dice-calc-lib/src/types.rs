@@ -46,6 +46,8 @@ impl Configuration {
 pub enum Sides {
     #[display("{0}")]
     Value(Value),
+    #[display("{0}x{1}")]
+    RepeatedValue(Value, usize),
     #[display("{0}..{1}")]
     Sequence(NumValue, NumValue),
     #[display("{first},{second}..{last}")]

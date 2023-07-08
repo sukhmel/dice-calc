@@ -1,4 +1,3 @@
-use crate::types::Filter::Basic;
 use crate::types::{
     BasicFilter, DotExpr, Expr, Filter, LogicFilter, LogicOperator, NumValue, Operator, Sides,
     Value,
@@ -42,19 +41,31 @@ pub fn side(i: &str) -> IResult<&str, Sides> {
                 second,
                 last,
             }),
-            number.map(|value| Sides::Value(Value::Rational(value))),
-            combinator::delimited("\"", string, "\"")
-                .map(|value| Sides::Value(Value::String(value.to_string()))),
+            combinator::separated_pair(value, separator("x"), digit.try_map(FromStr::from_str))
+                .map(|(value, times)| Sides::RepeatedValue(value, times)),
+            value.map(Sides::Value),
         )),
         spaces,
     )
     .parse_next(i)
 }
 
+pub fn value(i: &str) -> IResult<&str, Value> {
+    combinator::alt((
+        number.map(|value| Value::Rational(value)),
+        combinator::delimited("\"", string, "\"").map(|value| Value::String(value.to_string())),
+    ))
+    .parse_next(i)
+}
+
 pub fn number(i: &str) -> IResult<&str, NumValue> {
-    combinator::delimited(spaces, digit, spaces)
-        .try_map(FromStr::from_str)
-        .parse_next(i)
+    combinator::delimited(
+        spaces,
+        combinator::separated_pair(combinator::alt(("-", "+", spaces)), spaces, digit),
+        spaces,
+    )
+    .try_map(|(sign, number): (&str, &str)| FromStr::from_str(&(sign.to_string() + number)))
+    .parse_next(i)
 }
 
 pub fn separator(sep: &'static str) -> impl Fn(&str) -> IResult<&str, ()> + '_ {
@@ -84,7 +95,7 @@ pub fn throw_expr(i: &str) -> IResult<&str, Expr> {
 
 pub fn dot_expr(i: &str) -> IResult<&str, DotExpr> {
     // If there was a dot, anything unexpected is a failure
-    combinator::cut_err(combinator::delimited(
+    combinator::delimited(
         spaces,
         combinator::alt((
             combinator::delimited("sum(", spaces, ")").map(|_| DotExpr::Sum()),
@@ -152,7 +163,7 @@ pub fn dot_expr(i: &str) -> IResult<&str, DotExpr> {
             ),
         )),
         spaces,
-    ))
+    )
     .parse_next(i)
 }
 
@@ -203,12 +214,17 @@ pub fn predicate(i: &str) -> IResult<&str, Filter> {
 
 pub fn basic_filter(i: &str) -> IResult<&str, BasicFilter> {
     generic_filter(
-        generic_filter(basic_predicate, BasicFilter::Logical, || "and", |_| LogicOperator::And),
+        generic_filter(
+            basic_predicate,
+            BasicFilter::Logical,
+            || "and",
+            |_| LogicOperator::And,
+        ),
         BasicFilter::Logical,
         || "or",
         |_| LogicOperator::Or,
     )
-        .parse_next(i)
+    .parse_next(i)
 }
 
 /// Parses logical expressions using parser inclusion level for separating precedence
@@ -312,7 +328,17 @@ fn factor(i: &str) -> IResult<&str, Expr> {
     combinator::alt((
         combinator::separated_pair(atom, separator("."), dot_expr)
             .map(|(value, args)| Expr::Call(Box::new(value), Box::new(args))),
-        atom,
+        combinator::terminated(
+            atom,
+            // TODO: implement some more elegant way to check if parsed value is a side?
+            //       this `atom` seem to be unable to backtrack to try the next line
+            combinator::not(combinator::alt((
+                separator(".."),
+                separator(","),
+                separator("x"),
+            ))),
+        ),
+        side.map(Expr::Sides),
     ))
     .parse_next(i)
 }
@@ -321,7 +347,7 @@ fn atom(i: &str) -> IResult<&str, Expr> {
     combinator::delimited(
         spaces,
         combinator::alt((
-            digit.try_map(FromStr::from_str).map(Expr::Value),
+            number.map(|number| Expr::Value(Value::Rational(number))),
             combinator::delimited("{", sides, "}").map(Expr::Sides),
             throw_expr,
             parens(expr, Expr::Parenthesis),

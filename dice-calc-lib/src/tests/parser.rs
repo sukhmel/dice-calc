@@ -1,10 +1,93 @@
 use super::*;
-use crate::parser::{basic_filter, dot_expr, expr, filter, sides};
+use crate::parser::{basic_filter, dot_expr, expr, filter, number, sides};
+
+#[test]
+fn test_number() {
+    assert_eq!(
+        number(r#"1"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
+        Ok((
+            "",
+            String::from("Ratio { numer: 1, denom: 1 }"),
+            String::from("1"),
+        ))
+    );
+
+    assert_eq!(
+        number(r#"+1"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
+        Ok((
+            "",
+            String::from("Ratio { numer: 1, denom: 1 }"),
+            String::from("1"),
+        ))
+    );
+
+    assert_eq!(
+        number(r#"-1"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
+        Ok((
+            "",
+            String::from("Ratio { numer: -1, denom: 1 }"),
+            String::from("-1"),
+        ))
+    );
+
+    assert_eq!(
+        expr(r#"-1"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
+        Ok((
+            "",
+            String::from("Value(Rational(Ratio { numer: -1, denom: 1 }))"),
+            String::from("-1"),
+        ))
+    );
+}
+
+#[test]
+fn test_naked_sides() {
+    assert_eq!(
+        expr(r#"1 + 2"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
+        Ok((
+            "",
+            String::from("Add(Value(Rational(Ratio { numer: 1, denom: 1 })), Value(Rational(Ratio { numer: 2, denom: 1 })))"),
+            String::from("1 + 2"),
+        ))
+    );
+    assert_eq!(
+        expr(r#"1 + 2..3"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
+        Ok((
+            "",
+            String::from("Add(Value(Rational(Ratio { numer: 1, denom: 1 })), Sides(Sequence(Ratio { numer: 2, denom: 1 }, Ratio { numer: 3, denom: 1 })))"),
+            String::from("1 + {2..3}"),
+        ))
+    );
+    assert_eq!(
+        expr(r#"1 + 2,3..33"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
+        Ok((
+            "",
+            String::from("Add(Value(Rational(Ratio { numer: 1, denom: 1 })), Sides(StepSequence { first: Ratio { numer: 2, denom: 1 }, second: Ratio { numer: 3, denom: 1 }, last: Ratio { numer: 33, denom: 1 } }))"),
+            String::from("1 + {2,3..33}"),
+        ))
+    );
+    assert_eq!(
+        expr(r#"1 + 2x3"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
+        Ok((
+            "",
+            String::from("Add(Value(Rational(Ratio { numer: 1, denom: 1 })), Sides(RepeatedValue(Rational(Ratio { numer: 2, denom: 1 }), 3)))"),
+            String::from("1 + {2x3}"),
+        ))
+    );
+    assert_eq!(
+        expr(r#""1" + "2""#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
+        Ok((
+            "",
+            String::from("Add(Sides(Value(String(\"1\"))), Sides(Value(String(\"2\"))))"),
+            String::from("{\"1\"} + {\"2\"}"),
+        ))
+    );
+}
 
 #[test]
 fn test_sides() {
     assert_eq!(
-        sides(r#"  1 .. 3; 6,8..22   ; 7; "some other"; "new""#).map(|(i, x)| (
+        sides(r#"  1 .. 3; 6,8..22   ; 7; "some other"; "new"; "+" x 3; 9 x 2"#).map(|(i, x)| (
             i,
             format!("{:#?}", x),
             format!("{}", x)
@@ -16,54 +99,73 @@ fn test_sides() {
     Union(
         Union(
             Union(
-                Sequence(
-                    Ratio {
-                        numer: 1,
-                        denom: 1,
-                    },
-                    Ratio {
-                        numer: 3,
-                        denom: 1,
-                    },
+                Union(
+                    Union(
+                        Sequence(
+                            Ratio {
+                                numer: 1,
+                                denom: 1,
+                            },
+                            Ratio {
+                                numer: 3,
+                                denom: 1,
+                            },
+                        ),
+                        StepSequence {
+                            first: Ratio {
+                                numer: 6,
+                                denom: 1,
+                            },
+                            second: Ratio {
+                                numer: 8,
+                                denom: 1,
+                            },
+                            last: Ratio {
+                                numer: 22,
+                                denom: 1,
+                            },
+                        },
+                    ),
+                    Value(
+                        Rational(
+                            Ratio {
+                                numer: 7,
+                                denom: 1,
+                            },
+                        ),
+                    ),
                 ),
-                StepSequence {
-                    first: Ratio {
-                        numer: 6,
-                        denom: 1,
-                    },
-                    second: Ratio {
-                        numer: 8,
-                        denom: 1,
-                    },
-                    last: Ratio {
-                        numer: 22,
-                        denom: 1,
-                    },
-                },
+                Value(
+                    String(
+                        "some other",
+                    ),
+                ),
             ),
             Value(
-                Rational(
-                    Ratio {
-                        numer: 7,
-                        denom: 1,
-                    },
+                String(
+                    "new",
                 ),
             ),
         ),
-        Value(
+        RepeatedValue(
             String(
-                "some other",
+                "+",
             ),
+            3,
         ),
     ),
-    Value(
-        String(
-            "new",
+    RepeatedValue(
+        Rational(
+            Ratio {
+                numer: 9,
+                denom: 1,
+            },
         ),
+        2,
     ),
 )"#
             ),
-            String::from(r#"1..3; 6,8..22; 7; "some other"; "new""#)
+            String::from(r#"1..3; 6,8..22; 7; "some other"; "new"; "+"x3; 9x2"#)
         ))
     );
 
@@ -158,11 +260,8 @@ fn test_filter() {
 #[test]
 fn test_filter_precedence() {
     assert_eq!(
-        basic_filter(r#"not = 1 and < 2 or not < 5 or > 10 and < 20 and not = 17"#).map(|(i, x)| (
-            i,
-            format!("{:#?}", x),
-            format!("{}", x)
-        )),
+        basic_filter(r#"not = -1 and < 2 or not < 5 or > 10 and < 20 and not = 17"#)
+            .map(|(i, x)| (i, format!("{:#?}", x), format!("{}", x))),
         Ok((
             "",
             String::from(
@@ -178,7 +277,7 @@ fn test_filter_precedence() {
                                     Value(
                                         Rational(
                                             Ratio {
-                                                numer: 1,
+                                                numer: -1,
                                                 denom: 1,
                                             },
                                         ),
@@ -259,7 +358,7 @@ fn test_filter_precedence() {
     ),
 )"#
             ),
-            String::from(r#"not = 1 and < 2 or not < 5 or > 10 and < 20 and not = 17"#)
+            String::from(r#"not = -1 and < 2 or not < 5 or > 10 and < 20 and not = 17"#)
         ))
     );
 }
