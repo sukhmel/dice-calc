@@ -52,7 +52,7 @@ pub fn side(i: &str) -> IResult<&str, Sides> {
 
 pub fn value(i: &str) -> IResult<&str, Value> {
     combinator::alt((
-        number.map(|value| Value::Rational(value)),
+        number.map(|value| Value::Numeric(value)),
         combinator::delimited("\"", string, "\"").map(|value| Value::String(value.to_string())),
     ))
     .parse_next(i)
@@ -103,31 +103,31 @@ pub fn dot_expr(i: &str) -> IResult<&str, DotExpr> {
             combinator::delimited("product(", spaces, ")").map(|_| DotExpr::Prod()),
             combinator::delimited(
                 "deduplicate(",
-                combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Rational(1.into()))))),
+                combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Numeric(1.into()))))),
                 ")",
             )
             .map(|expr| DotExpr::Deduplicate(expr)),
             combinator::delimited(
                 "low(",
-                combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Rational(1.into()))))),
+                combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Numeric(1.into()))))),
                 ")",
             )
             .map(|expr| DotExpr::Low(expr)),
             combinator::delimited(
                 "high(",
-                combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Rational(1.into()))))),
+                combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Numeric(1.into()))))),
                 ")",
             )
             .map(|expr| DotExpr::High(expr)),
             combinator::delimited(
                 "min(",
-                combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Rational(1.into()))))),
+                combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Numeric(1.into()))))),
                 ")",
             )
             .map(|expr| DotExpr::Min(expr)),
             combinator::delimited(
                 "max(",
-                combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Rational(1.into()))))),
+                combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Numeric(1.into()))))),
                 ")",
             )
             .map(|expr| DotExpr::Max(expr)),
@@ -150,6 +150,10 @@ pub fn dot_expr(i: &str) -> IResult<&str, DotExpr> {
             combinator::preceded(
                 "difference(",
                 combinator::terminated(expr, ")").map(|expr| DotExpr::Difference(expr)),
+            ),
+            combinator::preceded(
+                "xor(",
+                combinator::terminated(expr, ")").map(|expr| DotExpr::Xor(expr)),
             ),
             combinator::preceded(
                 "filter(",
@@ -292,7 +296,8 @@ pub fn basic_check(i: &str) -> IResult<&str, BasicFilter> {
 }
 
 pub fn expr(i: &str) -> IResult<&str, Expr> {
-    let (i, initial) = term(i)?;
+    let (i, help) = combinator::opt(combinator::delimited(spaces, "help", spaces)).parse_next(i)?;
+    let (i, initial) = term.parse_next(i)?;
     let (i, remainder) = combinator::repeat(0.., |i| {
         let (i, operation) = one_of("+-").parse_next(i)?;
         let op = match operation {
@@ -304,7 +309,11 @@ pub fn expr(i: &str) -> IResult<&str, Expr> {
     })
     .parse_next(i)?;
 
-    Ok((i, fold_expressions(initial, remainder)))
+    let mut expr = fold_expressions(initial, remainder);
+    if help.is_some() {
+        expr = Expr::Help(Box::new(expr));
+    }
+    Ok((i, expr))
 }
 
 fn term(i: &str) -> IResult<&str, Expr> {
@@ -328,17 +337,13 @@ fn factor(i: &str) -> IResult<&str, Expr> {
     combinator::alt((
         combinator::separated_pair(atom, separator("."), dot_expr)
             .map(|(value, args)| Expr::Call(Box::new(value), Box::new(args))),
-        combinator::terminated(
-            atom,
-            // TODO: implement some more elegant way to check if parsed value is a side?
-            //       this `atom` seem to be unable to backtrack to try the next line
-            combinator::not(combinator::alt((
-                separator(".."),
-                separator(","),
-                separator("x"),
-            ))),
-        ),
-        side.map(Expr::Sides),
+        // HACK: we can't distinguish between naked sides with numeric content and expression with
+        //       the same content. They also should be generally interchangeable in expressions.
+        side.map(|side| match side {
+            Sides::Value(value) if matches!(value, Value::Numeric(_)) => Expr::Value(value),
+            sides => Expr::Sides(sides),
+        }),
+        atom,
     ))
     .parse_next(i)
 }
@@ -347,7 +352,7 @@ fn atom(i: &str) -> IResult<&str, Expr> {
     combinator::delimited(
         spaces,
         combinator::alt((
-            number.map(|number| Expr::Value(Value::Rational(number))),
+            number.map(|number| Expr::Value(Value::Numeric(number))),
             combinator::delimited("{", sides, "}").map(Expr::Sides),
             throw_expr,
             parens(expr, Expr::Parenthesis),
@@ -371,13 +376,9 @@ where
 }
 
 fn fold_sides(initial: Sides, remainder: Vec<Sides>) -> Sides {
-    if remainder.is_empty() {
-        initial
-    } else {
-        remainder.into_iter().fold(initial, |acc, side| {
-            Sides::Union(Box::new(acc), Box::new(side))
-        })
-    }
+    remainder.into_iter().fold(initial, |acc, side| {
+        Sides::Union(Box::new(acc), Box::new(side))
+    })
 }
 
 fn fold_expressions(initial: Expr, remainder: Vec<(Operator, Expr)>) -> Expr {
@@ -388,7 +389,7 @@ fn fold_expressions(initial: Expr, remainder: Vec<(Operator, Expr)>) -> Expr {
             Operator::Sub => Expr::Sub(Box::new(acc), Box::new(expr)),
             Operator::Div => Expr::Div(Box::new(acc), Box::new(expr)),
             Operator::Mul => Expr::Mul(Box::new(acc), Box::new(expr)),
-            // Note: Throw is inverted because alternative syntax has throw description opposite
+            // Note: inverted because alternative syntax describes it the opposite way
             Operator::Throw => Expr::Throw(Box::new(expr), Box::new(acc)),
         }
     })

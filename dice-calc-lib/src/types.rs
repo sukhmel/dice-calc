@@ -1,24 +1,29 @@
-use num::BigUint;
+use crate::parser::expr;
+use anyhow::{anyhow, bail};
+use num::{BigUint, Zero};
 use parse_display::{Display, FromStr};
+use std::str::FromStr;
+use winnow::error::Error;
+use winnow::Parser;
 
 pub type NumValue = num::Rational32;
 
-#[derive(Debug, Display, FromStr, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Display, FromStr, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Value {
     #[display("{0}")]
-    Rational(NumValue),
+    Numeric(NumValue),
     #[display("\"{0}\"")]
     String(String),
 }
 
 /// A result of specific amount of dice being thrown
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Throw(Vec<Value>);
 
 /// A [throw] with the count of outcomes that lead to it out of total outcomes
 ///
 /// [throw]: Throw
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Outcome {
     throw: Throw,
     count: BigUint,
@@ -27,7 +32,7 @@ pub struct Outcome {
 /// A total configuration of all possible [outcomes]
 ///
 /// [outcomes]: Outcome
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Configuration {
     /// All possible events
     events: Vec<Outcome>,
@@ -36,13 +41,39 @@ pub struct Configuration {
 }
 
 impl Configuration {
+    /// Empty configuration with no events
+    pub fn empty() -> Self {
+        Self {
+            events: Vec::new(),
+            total_outcomes: BigUint::zero(),
+        }
+    }
+
+    /// Configuration consisting from a single event
+    ///
+    /// whatever we do with a single-sided die, it will produce the same result
+    pub fn singular(value: Value) -> Self {
+        Self {
+            events: vec![Outcome {
+                throw: Throw(vec![value]),
+                count: BigUint::from(1u8),
+            }],
+            total_outcomes: BigUint::from(1u8),
+        }
+    }
+
+    /// Configuration produced by throwing a specified die several times
+    pub fn simple_throw(sides: Sides, times: NumValue) -> Self {
+        unimplemented!()
+    }
+
     /// Get the total count of possible (not necessarily different) events in this configuration
-    fn total(&self) -> BigUint {
+    pub fn total(&self) -> BigUint {
         self.total_outcomes.clone()
     }
 }
 
-#[derive(Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Debug, Display, Eq, PartialEq)]
 pub enum Sides {
     #[display("{0}")]
     Value(Value),
@@ -60,8 +91,10 @@ pub enum Sides {
     Union(Box<Sides>, Box<Sides>),
 }
 
-#[derive(Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Debug, Display, Eq, PartialEq)]
 pub enum Expr {
+    #[display("help {0}")]
+    Help(Box<Expr>),
     #[display("{0}")]
     Value(Value),
     #[display("{{{0}}}")]
@@ -84,7 +117,21 @@ pub enum Expr {
     Parenthesis(Box<Expr>), // ( X )
 }
 
-#[derive(Debug, Display, Eq, PartialEq)]
+impl FromStr for Expr {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (unparsed, result) = expr
+            .parse_next(s)
+            .map_err(|err| anyhow!("Error parsing: {err}"))?;
+        if !unparsed.is_empty() {
+            bail!("String was not fully parsed: `{}` left", unparsed)
+        }
+        Ok(result)
+    }
+}
+
+#[derive(Clone, Debug, Display, Eq, PartialEq)]
 pub enum DotExpr {
     #[display("count()")]
     Count(),
@@ -120,12 +167,14 @@ pub enum DotExpr {
     Intersection(Expr),
     #[display("diff({0})")]
     Difference(Expr),
+    #[display("xor({0})")]
+    Xor(Expr),
     #[display("sample({0})")]
     Sample(usize),
 }
 
 /// Todo: split into Filters that can be used for throwing until, and the rest
-#[derive(Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Debug, Display, Eq, PartialEq)]
 pub enum Filter {
     #[display("{0}")]
     Basic(BasicFilter),
@@ -147,7 +196,7 @@ pub enum Filter {
     Parenthesis(Box<Filter>),
 }
 
-#[derive(Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Debug, Display, Eq, PartialEq)]
 pub enum LogicFilter<T: Eq + PartialEq + std::fmt::Display> {
     #[display("not {0}")]
     Not(Box<T>),
@@ -157,7 +206,7 @@ pub enum LogicFilter<T: Eq + PartialEq + std::fmt::Display> {
     Or(Box<T>, Box<T>),
 }
 
-#[derive(Debug, Display, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Display, Eq, PartialEq, Ord, PartialOrd)]
 pub enum LogicOperator {
     #[display("and")]
     And,
@@ -165,7 +214,7 @@ pub enum LogicOperator {
     Or,
 }
 
-#[derive(Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Debug, Display, Eq, PartialEq)]
 pub enum BasicFilter {
     #[display("= {0}")]
     Equal(Expr),
@@ -183,7 +232,7 @@ pub enum BasicFilter {
     Parenthesis(Box<BasicFilter>),
 }
 
-#[derive(Debug, Display, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Display, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Operator {
     #[display("+")]
     Add,

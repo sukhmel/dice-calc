@@ -34,7 +34,7 @@ fn test_number() {
         expr(r#"-1"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
         Ok((
             "",
-            String::from("Value(Rational(Ratio { numer: -1, denom: 1 }))"),
+            String::from("Value(Numeric(Ratio { numer: -1, denom: 1 }))"),
             String::from("-1"),
         ))
     );
@@ -46,7 +46,7 @@ fn test_naked_sides() {
         expr(r#"1 + 2"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
         Ok((
             "",
-            String::from("Add(Value(Rational(Ratio { numer: 1, denom: 1 })), Value(Rational(Ratio { numer: 2, denom: 1 })))"),
+            String::from("Add(Value(Numeric(Ratio { numer: 1, denom: 1 })), Value(Numeric(Ratio { numer: 2, denom: 1 })))"),
             String::from("1 + 2"),
         ))
     );
@@ -54,7 +54,7 @@ fn test_naked_sides() {
         expr(r#"1 + 2..3"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
         Ok((
             "",
-            String::from("Add(Value(Rational(Ratio { numer: 1, denom: 1 })), Sides(Sequence(Ratio { numer: 2, denom: 1 }, Ratio { numer: 3, denom: 1 })))"),
+            String::from("Add(Value(Numeric(Ratio { numer: 1, denom: 1 })), Sides(Sequence(Ratio { numer: 2, denom: 1 }, Ratio { numer: 3, denom: 1 })))"),
             String::from("1 + {2..3}"),
         ))
     );
@@ -62,7 +62,7 @@ fn test_naked_sides() {
         expr(r#"1 + 2,3..33"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
         Ok((
             "",
-            String::from("Add(Value(Rational(Ratio { numer: 1, denom: 1 })), Sides(StepSequence { first: Ratio { numer: 2, denom: 1 }, second: Ratio { numer: 3, denom: 1 }, last: Ratio { numer: 33, denom: 1 } }))"),
+            String::from("Add(Value(Numeric(Ratio { numer: 1, denom: 1 })), Sides(StepSequence { first: Ratio { numer: 2, denom: 1 }, second: Ratio { numer: 3, denom: 1 }, last: Ratio { numer: 33, denom: 1 } }))"),
             String::from("1 + {2,3..33}"),
         ))
     );
@@ -70,7 +70,7 @@ fn test_naked_sides() {
         expr(r#"1 + 2x3"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
         Ok((
             "",
-            String::from("Add(Value(Rational(Ratio { numer: 1, denom: 1 })), Sides(RepeatedValue(Rational(Ratio { numer: 2, denom: 1 }), 3)))"),
+            String::from("Add(Value(Numeric(Ratio { numer: 1, denom: 1 })), Sides(RepeatedValue(Numeric(Ratio { numer: 2, denom: 1 }), 3)))"),
             String::from("1 + {2x3}"),
         ))
     );
@@ -127,7 +127,7 @@ fn test_sides() {
                         },
                     ),
                     Value(
-                        Rational(
+                        Numeric(
                             Ratio {
                                 numer: 7,
                                 denom: 1,
@@ -155,7 +155,7 @@ fn test_sides() {
         ),
     ),
     RepeatedValue(
-        Rational(
+        Numeric(
             Ratio {
                 numer: 9,
                 denom: 1,
@@ -221,7 +221,7 @@ fn test_filter() {
                             UniqueTimes(
                                 Equal(
                                     Value(
-                                        Rational(
+                                        Numeric(
                                             Ratio {
                                                 numer: 3,
                                                 denom: 1,
@@ -239,7 +239,7 @@ fn test_filter() {
             Times(
                 Equal(
                     Value(
-                        Rational(
+                        Numeric(
                             Ratio {
                                 numer: 1,
                                 denom: 1,
@@ -275,7 +275,7 @@ fn test_filter_precedence() {
                             Not(
                                 Equal(
                                     Value(
-                                        Rational(
+                                        Numeric(
                                             Ratio {
                                                 numer: -1,
                                                 denom: 1,
@@ -287,7 +287,7 @@ fn test_filter_precedence() {
                         ),
                         LessThan(
                             Value(
-                                Rational(
+                                Numeric(
                                     Ratio {
                                         numer: 2,
                                         denom: 1,
@@ -301,7 +301,7 @@ fn test_filter_precedence() {
                     Not(
                         LessThan(
                             Value(
-                                Rational(
+                                Numeric(
                                     Ratio {
                                         numer: 5,
                                         denom: 1,
@@ -319,7 +319,7 @@ fn test_filter_precedence() {
                     And(
                         GreaterThan(
                             Value(
-                                Rational(
+                                Numeric(
                                     Ratio {
                                         numer: 10,
                                         denom: 1,
@@ -329,7 +329,7 @@ fn test_filter_precedence() {
                         ),
                         LessThan(
                             Value(
-                                Rational(
+                                Numeric(
                                     Ratio {
                                         numer: 20,
                                         denom: 1,
@@ -343,7 +343,7 @@ fn test_filter_precedence() {
                     Not(
                         Equal(
                             Value(
-                                Rational(
+                                Numeric(
                                     Ratio {
                                         numer: 17,
                                         denom: 1,
@@ -374,7 +374,7 @@ fn test_basic_filter() {
     Not(
         LessThan(
             Value(
-                Rational(
+                Numeric(
                     Ratio {
                         numer: 1,
                         denom: 1,
@@ -398,7 +398,7 @@ fn test_dot_expr() {
             "",
             r#"Call(
     Value(
-        Rational(
+        Numeric(
             Ratio {
                 numer: 2,
                 denom: 1,
@@ -418,7 +418,7 @@ fn test_dot_expr() {
             "",
             r#"Call(
     Value(
-        Rational(
+        Numeric(
             Ratio {
                 numer: 2,
                 denom: 1,
@@ -427,7 +427,7 @@ fn test_dot_expr() {
     ),
     Deduplicate(
         Value(
-            Rational(
+            Numeric(
                 Ratio {
                     numer: 1,
                     denom: 1,
@@ -447,7 +447,7 @@ fn test_dot_expr() {
             "",
             r#"Call(
     Value(
-        Rational(
+        Numeric(
             Ratio {
                 numer: 2,
                 denom: 1,
@@ -456,7 +456,7 @@ fn test_dot_expr() {
     ),
     Deduplicate(
         Value(
-            Rational(
+            Numeric(
                 Ratio {
                     numer: 5,
                     denom: 1,
@@ -506,7 +506,7 @@ fn test_expr() {
             },
         ),
         Value(
-            Rational(
+            Numeric(
                 Ratio {
                     numer: 0,
                     denom: 1,
@@ -559,7 +559,7 @@ fn test_expr() {
                         },
                     ),
                     Value(
-                        Rational(
+                        Numeric(
                             Ratio {
                                 numer: 0,
                                 denom: 1,
@@ -571,7 +571,7 @@ fn test_expr() {
             Basic(
                 LessThan(
                     Value(
-                        Rational(
+                        Numeric(
                             Ratio {
                                 numer: 3,
                                 denom: 1,
@@ -581,7 +581,7 @@ fn test_expr() {
                 ),
             ),
             Value(
-                Rational(
+                Numeric(
                     Ratio {
                         numer: 5,
                         denom: 1,
@@ -603,7 +603,7 @@ fn test_expr() {
                 ),
             ),
             Value(
-                Rational(
+                Numeric(
                     Ratio {
                         numer: 2,
                         denom: 1,
@@ -614,7 +614,7 @@ fn test_expr() {
     ),
     Throw(
         Value(
-            Rational(
+            Numeric(
                 Ratio {
                     numer: 9,
                     denom: 1,
@@ -622,7 +622,7 @@ fn test_expr() {
             ),
         ),
         Value(
-            Rational(
+            Numeric(
                 Ratio {
                     numer: 5,
                     denom: 1,

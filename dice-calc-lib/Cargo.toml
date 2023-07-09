@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-num = { version = "0.4.0", features = ["default", "num-bigint"] }
-parse-display = "0.8.1"
-winnow = "0.4.6"
+anyhow = "1.0"
+itertools = "0.10"
+num = { version = "0.4", features = ["default", "num-bigint"] }
+parse-display = "0.8"
+winnow = "0.4"
