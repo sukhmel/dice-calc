@@ -11,11 +11,11 @@ use winnow::ascii::{
     alphanumeric1 as alphanumeric, digit1 as digit, escaped, multispace0 as spaces,
 };
 use winnow::error::{ErrMode, Error, ErrorKind};
-use winnow::token::one_of;
+use winnow::token::{none_of, one_of};
 use winnow::{combinator, IResult, Parser};
 
 pub fn string(i: &str) -> IResult<&str, &str> {
-    escaped(one_of(|c| c != '"' && c != '\\'), '\\', one_of(r#"rnt"\"#)).parse_next(i)
+    escaped(none_of(r#""\"#), '\\', one_of(r#"rnt"\"#)).parse_next(i)
 }
 
 pub fn sides(i: &str) -> IResult<&str, Sides> {
@@ -53,7 +53,7 @@ pub fn side(i: &str) -> IResult<&str, Sides> {
 pub fn value(i: &str) -> IResult<&str, Value> {
     combinator::alt((
         number.map(|value| Value::Numeric(value)),
-        combinator::delimited("\"", string, "\"").map(|value| Value::String(value.to_string())),
+        combinator::delimited("\"", string, "\"").map(|value| value.into()),
     ))
     .parse_next(i)
 }
@@ -93,7 +93,7 @@ pub fn throw_expr(i: &str) -> IResult<&str, Expr> {
     }
 }
 
-pub fn dot_expr(i: &str) -> IResult<&str, DotExpr> {
+pub fn dot_expr(i: &str) -> IResult<&str, DotExpr<Expr>> {
     // If there was a dot, anything unexpected is a failure
     combinator::delimited(
         spaces,
@@ -106,64 +106,61 @@ pub fn dot_expr(i: &str) -> IResult<&str, DotExpr> {
                 combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Numeric(1.into()))))),
                 ")",
             )
-            .map(|expr| DotExpr::Deduplicate(expr)),
+            .map(DotExpr::Deduplicate),
             combinator::delimited(
                 "low(",
                 combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Numeric(1.into()))))),
                 ")",
             )
-            .map(|expr| DotExpr::Low(expr)),
+            .map(DotExpr::Low),
             combinator::delimited(
                 "high(",
                 combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Numeric(1.into()))))),
                 ")",
             )
-            .map(|expr| DotExpr::High(expr)),
+            .map(DotExpr::High),
             combinator::delimited(
                 "min(",
                 combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Numeric(1.into()))))),
                 ")",
             )
-            .map(|expr| DotExpr::Min(expr)),
+            .map(DotExpr::Min),
             combinator::delimited(
                 "max(",
                 combinator::alt((expr, spaces.map(|_| Expr::Value(Value::Numeric(1.into()))))),
                 ")",
             )
-            .map(|expr| DotExpr::Max(expr)),
+            .map(DotExpr::Max),
             combinator::preceded(
                 "retain(",
-                combinator::terminated(expr, ")").map(|expr| DotExpr::Retain(expr)),
+                combinator::terminated(filter, ")").map(DotExpr::Retain),
             ),
             combinator::preceded(
                 "remove(",
-                combinator::terminated(expr, ")").map(|expr| DotExpr::Remove(expr)),
+                combinator::terminated(filter, ")").map(DotExpr::Remove),
             ),
             combinator::preceded(
                 "union(",
-                combinator::terminated(expr, ")").map(|expr| DotExpr::Union(expr)),
+                combinator::terminated(expr, ")").map(DotExpr::Union),
             ),
             combinator::preceded(
                 "intersection(",
-                combinator::terminated(expr, ")").map(|expr| DotExpr::Intersection(expr)),
+                combinator::terminated(expr, ")").map(DotExpr::Intersection),
             ),
             combinator::preceded(
                 "difference(",
-                combinator::terminated(expr, ")").map(|expr| DotExpr::Difference(expr)),
+                combinator::terminated(expr, ")").map(DotExpr::Difference),
             ),
-            combinator::preceded(
-                "xor(",
-                combinator::terminated(expr, ")").map(|expr| DotExpr::Xor(expr)),
-            ),
+            combinator::preceded("xor(", combinator::terminated(expr, ")").map(DotExpr::Xor)),
             combinator::preceded(
                 "filter(",
-                combinator::terminated(filter, ")").map(|f| DotExpr::Filter(f)),
+                combinator::terminated(filter, ")").map(DotExpr::Filter),
             ),
             combinator::preceded(
                 "sample(",
                 combinator::terminated(digit, ")")
                     .try_map(FromStr::from_str)
-                    .map(|expr| DotExpr::Sample(expr)),
+                    .map(DotExpr::Sample),
             ),
         )),
         spaces,
@@ -171,7 +168,7 @@ pub fn dot_expr(i: &str) -> IResult<&str, DotExpr> {
     .parse_next(i)
 }
 
-pub fn filter(i: &str) -> IResult<&str, Filter> {
+pub fn filter(i: &str) -> IResult<&str, Filter<Expr>> {
     generic_filter(
         generic_filter(predicate, Filter::Logical, || "and", |_| LogicOperator::And),
         Filter::Logical,
@@ -181,12 +178,12 @@ pub fn filter(i: &str) -> IResult<&str, Filter> {
     .parse_next(i)
 }
 
-pub fn predicate(i: &str) -> IResult<&str, Filter> {
+pub fn predicate(i: &str) -> IResult<&str, Filter<Expr>> {
     combinator::delimited(
         spaces,
         combinator::alt((
             combinator::preceded(combinator::terminated("not", spaces), predicate)
-                .map(|f| Filter::Logical(LogicFilter::Not(Box::new(f)))),
+                .map(|f| Filter::Logical(Box::new(LogicFilter::Not(f)))),
             basic_filter.map(|f| Filter::Basic(f)),
             combinator::delimited(
                 "duplicated(",
@@ -216,7 +213,7 @@ pub fn predicate(i: &str) -> IResult<&str, Filter> {
     .parse_next(i)
 }
 
-pub fn basic_filter(i: &str) -> IResult<&str, BasicFilter> {
+pub fn basic_filter(i: &str) -> IResult<&str, BasicFilter<Expr>> {
     generic_filter(
         generic_filter(
             basic_predicate,
@@ -248,7 +245,7 @@ pub fn generic_filter<'a, T, P, W, G, Op, S>(
 where
     T: Eq + PartialEq + Display,
     P: FnMut(&'a str) -> IResult<&'a str, T>,
-    W: Fn(LogicFilter<T>) -> T,
+    W: Fn(Box<LogicFilter<T>>) -> T,
     G: Fn() -> Op,
     Op: Parser<&'a str, &'a str, Error<&'a str>>,
     S: Fn(&'a str) -> LogicOperator,
@@ -266,12 +263,12 @@ where
     }
 }
 
-pub fn basic_predicate(i: &str) -> IResult<&str, BasicFilter> {
+pub fn basic_predicate(i: &str) -> IResult<&str, BasicFilter<Expr>> {
     combinator::delimited(
         spaces,
         combinator::alt((
             combinator::preceded(combinator::terminated("not", spaces), basic_predicate)
-                .map(|f| BasicFilter::Logical(LogicFilter::Not(Box::new(f)))),
+                .map(|f| BasicFilter::Logical(Box::new(LogicFilter::Not(f)))),
             basic_check,
             parens(basic_filter, BasicFilter::Parenthesis),
         )),
@@ -280,7 +277,7 @@ pub fn basic_predicate(i: &str) -> IResult<&str, BasicFilter> {
     .parse_next(i)
 }
 
-pub fn basic_check(i: &str) -> IResult<&str, BasicFilter> {
+pub fn basic_check(i: &str) -> IResult<&str, BasicFilter<Expr>> {
     let (i, op) = combinator::alt(("<", ">", "=", "in")).parse_next(i)?;
     let (i, expr) = expr.parse_next(i)?;
     Ok((
@@ -398,13 +395,13 @@ fn fold_expressions(initial: Expr, remainder: Vec<(Operator, Expr)>) -> Expr {
 fn fold_filters<T: Eq + PartialEq + Display>(
     initial: T,
     remainder: Vec<(LogicOperator, T)>,
-    wrapper: impl Fn(LogicFilter<T>) -> T,
+    wrapper: impl Fn(Box<LogicFilter<T>>) -> T,
 ) -> T {
     remainder.into_iter().fold(initial, |acc, pair| {
         let (operation, expr) = pair;
         match operation {
-            LogicOperator::And => wrapper(LogicFilter::And(Box::new(acc), Box::new(expr))),
-            LogicOperator::Or => wrapper(LogicFilter::Or(Box::new(acc), Box::new(expr))),
+            LogicOperator::And => wrapper(Box::new(LogicFilter::And(acc, expr))),
+            LogicOperator::Or => wrapper(Box::new(LogicFilter::Or(acc, expr))),
         }
     })
 }
