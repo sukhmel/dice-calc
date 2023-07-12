@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
+use std::mem;
 use std::str::FromStr;
 
 use anyhow::{anyhow, bail};
@@ -9,9 +10,11 @@ use parse_display::{Display, FromStr};
 use winnow::error::Error;
 use winnow::Parser;
 
+use crate::error::CalcError;
 use crate::parser::expr;
 
 pub type NumValue = num::Rational32;
+pub type CalcResult<T> = Result<T, CalcError>;
 
 #[derive(Clone, Debug, Display, FromStr, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Value {
@@ -33,6 +36,12 @@ impl From<NumValue> for Value {
     }
 }
 
+impl From<i32> for Value {
+    fn from(value: i32) -> Self {
+        Self::Numeric(Ratio::from_i32(value).unwrap())
+    }
+}
+
 impl From<String> for Value {
     fn from(value: String) -> Self {
         Self::String(value)
@@ -48,6 +57,7 @@ impl From<&str> for Value {
 /// A result of specific amount of dice being thrown
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Throw(Vec<Value>);
+// TODO: use set?
 
 impl Display for Throw {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -56,15 +66,22 @@ impl Display for Throw {
 }
 
 impl Throw {
-    pub fn apply(self, function: &DotExpr<Configuration>) -> Self {
+    pub fn apply(self, function: &DotExpr<Configuration>) -> CalcResult<Self> {
         if self.0.is_empty() {
-            // TODO: except for xor operator
-            return self;
+            return match function {
+                // TODO: return all possible outcomes
+                DotExpr::Xor(other) => Ok(other.events[0].throw.clone()),
+                _ => Ok(self),
+            };
         }
-        match function {
+        let result = match function {
             DotExpr::Count() => Throw(vec![self.0.len().into()]),
-            DotExpr::Sum() => todo!("Throw(vec![self.0.into_iter().sum()]) but maybe error"),
-            DotExpr::Prod() => todo!("Throw(vec![self.0.into_iter().product()]) but maybe error"),
+            DotExpr::Sum() => Throw(vec![Value::Numeric(
+                self.try_into_num_vec()?.into_iter().sum(),
+            )]),
+            DotExpr::Prod() => Throw(vec![Value::Numeric(
+                self.try_into_num_vec()?.into_iter().product(),
+            )]),
             DotExpr::Filter(_) => todo!(),
             DotExpr::Deduplicate(_) => todo!(),
             DotExpr::Low(_) => todo!(),
@@ -78,7 +95,23 @@ impl Throw {
             DotExpr::Difference(_) => todo!(),
             DotExpr::Xor(_) => todo!(),
             DotExpr::Sample(_) => todo!(),
-        }
+        };
+        Ok(result)
+    }
+
+    pub fn try_into_num_vec(self) -> Result<Vec<NumValue>, CalcError> {
+        self.0
+            .into_iter()
+            .map(|value| {
+                let Value::Numeric(num) = value else {
+                    return Err(CalcError::UnexpectedArgument {
+                        arg: value.to_string(),
+                        details: "throw has non-numeric parts".to_string()
+                    })
+                };
+                Ok(num)
+            })
+            .collect()
     }
 }
 
@@ -94,11 +127,11 @@ pub struct Outcome {
 
 impl Outcome {
     /// This will produce vector of outcomes, really
-    pub fn apply(self, function: &DotExpr<Configuration>) -> Self {
-        Self {
-            throw: self.throw.apply(function),
+    pub fn apply(self, function: &DotExpr<Configuration>) -> CalcResult<Self> {
+        Ok(Self {
+            throw: self.throw.apply(function)?,
             ..self
-        }
+        })
     }
 }
 
@@ -112,6 +145,7 @@ pub struct Configuration {
     /// Count of total number of events
     total_outcomes: BigUint,
 }
+// TODO: implement normalization that would collapse same outcomes
 
 impl Display for Configuration {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -146,8 +180,46 @@ impl Configuration {
     }
 
     /// Configuration produced by throwing a specified die several times
-    pub fn simple_throw(sides: Sides, times: NumValue) -> Self {
-        todo!("throw {} {} times", sides, times)
+    pub fn simple_throw(sides: Vec<Value>, times: NumValue) -> CalcResult<Self> {
+        if *times.denom() != 1 || *times.numer() < 0 {
+            return Err(CalcError::UnexpectedArgument {
+                arg: times.to_string(),
+                details: "can only perform throws with positive whole numbers".to_string(),
+            });
+        }
+        let result = {
+            let mut prev = vec![vec![]];
+            for _ in 0..*times.numer() {
+                let mut next = vec![];
+                for v in prev {
+                    for side in &sides {
+                        let mut vec = v.clone();
+                        vec.push(side.clone());
+                        next.push(vec);
+                    }
+                }
+                prev = next;
+            }
+            prev
+        };
+
+        let total_outcomes = BigUint::from(result.len());
+        // TODO: collapse same results
+        let events = result
+            .into_iter()
+            .map(|mut values| {
+                values.sort();
+                Outcome {
+                    throw: Throw(values),
+                    count: BigUint::from(1u8),
+                }
+            })
+            .collect::<Vec<_>>();
+
+        Ok(Configuration {
+            total_outcomes,
+            events,
+        })
     }
 
     /// Get the total count of possible (not necessarily different) events in this configuration
@@ -156,15 +228,15 @@ impl Configuration {
     }
 
     /// Apply the specified dot expression to the self
-    pub fn apply(self, function: DotExpr<Configuration>) -> Self {
-        Configuration {
+    pub fn apply(self, function: DotExpr<Configuration>) -> CalcResult<Self> {
+        Ok(Configuration {
             total_outcomes: self.total_outcomes * function.total_change(),
             events: self
                 .events
                 .into_iter()
                 .map(|outcome| outcome.apply(&function))
-                .collect(),
-        }
+                .collect::<CalcResult<Vec<_>>>()?,
+        })
     }
 }
 

@@ -14,6 +14,8 @@ use winnow::error::{ErrMode, Error, ErrorKind};
 use winnow::token::{none_of, one_of};
 use winnow::{combinator, IResult, Parser};
 
+// TODO: use [`winnow::error::VerboseError`]
+
 pub fn string(i: &str) -> IResult<&str, &str> {
     escaped(none_of(r#""\"#), '\\', one_of(r#"rnt"\"#)).parse_next(i)
 }
@@ -314,7 +316,8 @@ pub fn expr(i: &str) -> IResult<&str, Expr> {
 }
 
 fn term(i: &str) -> IResult<&str, Expr> {
-    let (i, initial) = factor(i)?;
+    let result = factor.parse_next(i);
+    let (i, initial) = result?;
     let (i, remainder) = combinator::repeat(0.., |i| {
         let (i, operation) = one_of("*/d").parse_next(i)?;
         let op = match operation {
@@ -334,12 +337,6 @@ fn factor(i: &str) -> IResult<&str, Expr> {
     combinator::alt((
         combinator::separated_pair(atom, separator("."), dot_expr)
             .map(|(value, args)| Expr::Call(Box::new(value), Box::new(args))),
-        // HACK: we can't distinguish between naked sides with numeric content and expression with
-        //       the same content. They also should be generally interchangeable in expressions.
-        side.map(|side| match side {
-            Sides::Value(value) if matches!(value, Value::Numeric(_)) => Expr::Value(value),
-            sides => Expr::Sides(sides),
-        }),
         atom,
     ))
     .parse_next(i)
@@ -349,6 +346,12 @@ fn atom(i: &str) -> IResult<&str, Expr> {
     combinator::delimited(
         spaces,
         combinator::alt((
+            // HACK: we can't distinguish between naked sides with numeric content and expression with
+            //       the same content. They also should be generally interchangeable in expressions.
+            side.map(|side| match side {
+                Sides::Value(value) if matches!(value, Value::Numeric(_)) => Expr::Value(value),
+                sides => Expr::Sides(sides),
+            }),
             number.map(|number| Expr::Value(Value::Numeric(number))),
             combinator::delimited("{", sides, "}").map(Expr::Sides),
             throw_expr,

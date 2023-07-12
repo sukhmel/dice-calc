@@ -1,9 +1,11 @@
 use std::fmt::Formatter;
 
+use crate::error::CalcError;
 use itertools::Itertools;
+use num::BigUint;
 use parse_display::Display;
 
-use crate::types::{BasicFilter, Configuration, DotExpr, Expr, Filter, Sides, Value};
+use crate::types::{BasicFilter, CalcResult, Configuration, DotExpr, Expr, Filter, Sides, Value};
 
 #[derive(Debug, Display)]
 #[display("{value}", bound(T : std::fmt::Display))]
@@ -31,52 +33,96 @@ impl<T> Output<T> {
 
 pub trait Compiled {
     type Output;
-    type Error;
 
-    fn compile(self) -> Result<Output<Self::Output>, Self::Error>;
+    fn compile(self) -> CalcResult<Output<Self::Output>>;
 }
 
 impl Compiled for Expr {
     type Output = Configuration;
-    type Error = ();
 
-    fn compile(self) -> Result<Output<Self::Output>, ()> {
+    fn compile(self) -> CalcResult<Output<Self::Output>> {
         self.compile_impl(0)
     }
 }
 
+// TODO: maybe Sides should not compile into Configuration unconditionally, but only if they can't
+//       be used as sides in a fitting position?
 impl Compiled for Sides {
     type Output = Configuration;
-    type Error = ();
 
-    fn compile(self) -> Result<Output<Self::Output>, Self::Error> {
-        todo!()
+    fn compile(self) -> CalcResult<Output<Self::Output>> {
+        let content = self.compile_impl(0)?;
+        Ok(Output { value:Configuration::simple_throw(content.value, 1.into())?, description: content.description})
+    }
+}
+
+impl Sides {
+    fn compile_impl(self, height: usize) -> CalcResult<Output<Vec<Value>>> {
+        let mut result = vec![];
+        let description = match self {
+            Sides::Value(value) => {
+                let descr = format!("single value {value}");
+                result.push(value);
+                vec![(descr, height)]
+            },
+            Sides::RepeatedValue(value, times) => {
+                for _ in 0..times {
+                    result.push(value.clone())
+                }
+                vec![(format!("value {value} repeated {times} times"), height)]
+            },
+            Sides::Sequence(start, stop) => {
+                if *start.denom() != 1 || *stop.denom() != 1 {
+                    return Err(CalcError::UnexpectedArgument {
+                        arg: format!("{start}..{stop}"),
+                        details: "simple sequence can only be produced for whole numbers".to_string(),
+                    })
+                }
+                let begin = i32::min(*start.numer(), *stop.numer());
+                let end = i32::max(*start.numer(), *stop.numer());
+                for index in begin..end + 1 {
+                    result.push(index.into());
+                }
+                vec![(format!("all values from {begin} to {end} inclusive"), height)]
+            }
+            Sides::StepSequence { .. } => todo!("step sequence"),
+            Sides::Union(left, right) => {
+                let first = left.compile_impl(height + 1)?;
+                let last = right.compile_impl(height + 1)?;
+                result.extend(first.value);
+                result.extend(last.value);
+                let mut description = first.description;
+                description.extend(last.description);
+                description
+            }
+        };
+        Ok(Output{
+            value: result,
+            description,
+        })
     }
 }
 
 impl Compiled for Filter<Expr> {
     type Output = Filter<Configuration>;
-    type Error = ();
 
-    fn compile(self) -> Result<Output<Self::Output>, Self::Error> {
+    fn compile(self) -> CalcResult<Output<Self::Output>> {
         todo!()
     }
 }
 
 impl Compiled for BasicFilter<Expr> {
     type Output = BasicFilter<Configuration>;
-    type Error = ();
 
-    fn compile(self) -> Result<Output<Self::Output>, Self::Error> {
+    fn compile(self) -> CalcResult<Output<Self::Output>> {
         todo!()
     }
 }
 
 impl Compiled for DotExpr<Expr> {
     type Output = DotExpr<Configuration>;
-    type Error = ();
 
-    fn compile(self) -> Result<Output<Self::Output>, Self::Error> {
+    fn compile(self) -> CalcResult<Output<Self::Output>> {
         let (description, result) = match self {
             DotExpr::Filter(filter) => {
                 let filter_output = filter.compile()?.with_added_height(1);
@@ -134,16 +180,16 @@ impl Compiled for DotExpr<Expr> {
             DotExpr::Xor(_) => todo!(),
             DotExpr::Sample(_) => todo!(),
             DotExpr::Count() => (
-                vec![("count outcomes in the configuration".into(), 0)],
+                vec![("count results in each outcome of configuration".into(), 0)],
                 DotExpr::Count(),
             ),
             DotExpr::Sum() => (
-                vec![("count sum of each outcome in the configuration".into(), 0)],
+                vec![("sum of results in each outcome of configuration".into(), 0)],
                 DotExpr::Sum(),
             ),
             DotExpr::Prod() => (
                 vec![(
-                    "count product of each outcome in the configuration".into(),
+                    "product of results in each outcome of configuration".into(),
                     0,
                 )],
                 DotExpr::Prod(),
@@ -160,38 +206,18 @@ impl DotExpr<Configuration> {
     pub fn apply_to(
         call: Output<Self>,
         conf: Output<Configuration>,
-    ) -> Result<Output<Configuration>, ()> {
+    ) -> CalcResult<Output<Configuration>> {
         let mut description = conf.description;
-        let value = match call.value {
-            DotExpr::Count() => conf.value.apply(call.value),
-            DotExpr::Sum() => todo!(),
-            DotExpr::Prod() => todo!(),
-            DotExpr::Filter(_) => todo!(),
-            DotExpr::Deduplicate(_) => todo!(),
-            DotExpr::Low(_) => todo!(),
-            DotExpr::High(_) => todo!(),
-            DotExpr::Min(_) => todo!(),
-            DotExpr::Max(_) => todo!(),
-            DotExpr::Retain(_) => todo!(),
-            DotExpr::Remove(_) => todo!(),
-            DotExpr::Union(_) => todo!(),
-            DotExpr::Intersection(_) => todo!(),
-            DotExpr::Difference(_) => todo!(),
-            DotExpr::Xor(_) => todo!(),
-            DotExpr::Sample(_) => todo!(),
-        };
+        let value = conf.value.apply(call.value)?;
         description.extend(call.description);
         Ok(Output { description, value })
     }
 }
 
 impl Expr {
-    fn compile_impl(
-        self,
-        height: usize,
-    ) -> Result<Output<<Self as Compiled>::Output>, <Self as Compiled>::Error> {
+    fn compile_impl(self, height: usize) -> CalcResult<Output<<Self as Compiled>::Output>> {
         let result = match self {
-            Expr::Help(_) => return Err(()),
+            Expr::Help(_) => return Err(CalcError::HelpMustBeCalled),
             Expr::Value(value) => Output {
                 description: vec![(
                     format!("value {value} converted to a single-sided die thrown once"),
@@ -230,7 +256,7 @@ impl Expr {
         Ok(result)
     }
 
-    pub fn help(self) -> Result<String, ()> {
+    pub fn help(self) -> CalcResult<String> {
         let expr = match self {
             Expr::Help(expr) => *expr,
             other => other,
