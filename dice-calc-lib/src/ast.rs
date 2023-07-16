@@ -5,7 +5,9 @@ use itertools::Itertools;
 use num::BigUint;
 use parse_display::Display;
 
-use crate::types::{BasicFilter, CalcResult, Configuration, DotExpr, Expr, Filter, Sides, Value};
+use crate::types::{
+    BasicFilter, CalcResult, Configuration, DotExpr, Expr, Filter, NumValue, Sides, Value,
+};
 
 #[derive(Debug, Display)]
 #[display("{value}", bound(T : std::fmt::Display))]
@@ -45,14 +47,15 @@ impl Compiled for Expr {
     }
 }
 
-// TODO: maybe Sides should not compile into Configuration unconditionally, but only if they can't
-//       be used as sides in a fitting position?
 impl Compiled for Sides {
     type Output = Configuration;
 
     fn compile(self) -> CalcResult<Output<Self::Output>> {
         let content = self.compile_impl(0)?;
-        Ok(Output { value:Configuration::simple_throw(content.value, 1.into())?, description: content.description})
+        Ok(Output {
+            value: Configuration::sides(content.value),
+            description: content.description,
+        })
     }
 }
 
@@ -64,26 +67,30 @@ impl Sides {
                 let descr = format!("single value {value}");
                 result.push(value);
                 vec![(descr, height)]
-            },
+            }
             Sides::RepeatedValue(value, times) => {
                 for _ in 0..times {
                     result.push(value.clone())
                 }
                 vec![(format!("value {value} repeated {times} times"), height)]
-            },
+            }
             Sides::Sequence(start, stop) => {
                 if *start.denom() != 1 || *stop.denom() != 1 {
                     return Err(CalcError::UnexpectedArgument {
                         arg: format!("{start}..{stop}"),
-                        details: "simple sequence can only be produced for whole numbers".to_string(),
-                    })
+                        details: "simple sequence can only be produced for whole numbers"
+                            .to_string(),
+                    });
                 }
                 let begin = i32::min(*start.numer(), *stop.numer());
                 let end = i32::max(*start.numer(), *stop.numer());
                 for index in begin..end + 1 {
                     result.push(index.into());
                 }
-                vec![(format!("all values from {begin} to {end} inclusive"), height)]
+                vec![(
+                    format!("all values from {begin} to {end} inclusive"),
+                    height,
+                )]
             }
             Sides::StepSequence { .. } => todo!("step sequence"),
             Sides::Union(left, right) => {
@@ -96,7 +103,7 @@ impl Sides {
                 description
             }
         };
-        Ok(Output{
+        Ok(Output {
             value: result,
             description,
         })
@@ -225,7 +232,7 @@ impl Expr {
                 )],
                 value: Configuration::singular(value),
             },
-            Expr::Sides(sides) => sides.compile()?.with_added_height(height + 1),
+            Expr::Sides(sides) => sides.compile()?.with_added_height(height),
             Expr::Call(target, call) => {
                 let target = target.compile_impl(height)?;
                 let call = call.compile()?.with_added_height(height);
@@ -234,6 +241,20 @@ impl Expr {
             Expr::Throw(what, times) => {
                 let what = what.compile()?;
                 let times = times.compile()?;
+                if let Ok(sides) = <Configuration as TryInto<Vec<Value>>>::try_into(what.value) {
+                    if let Ok(times) = times.value.try_into() {
+                        return Ok(Output {
+                            description: vec![(
+                                format!(
+                                    "dice with sides [{}] thrown {times} times",
+                                    sides.iter().map(ToString::to_string).join(","),
+                                ),
+                                height,
+                            )],
+                            value: Configuration::simple_throw(sides, times)?,
+                        });
+                    }
+                }
                 todo!()
             }
             Expr::Until(_, _, _) => {

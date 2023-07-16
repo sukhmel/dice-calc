@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::mem;
 use std::str::FromStr;
@@ -55,7 +56,7 @@ impl From<&str> for Value {
 }
 
 /// A result of specific amount of dice being thrown
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Throw(Vec<Value>);
 // TODO: use set?
 
@@ -125,6 +126,15 @@ pub struct Outcome {
     count: BigUint,
 }
 
+impl From<Value> for Outcome {
+    fn from(value: Value) -> Self {
+        Self {
+            throw: Throw(vec![value]),
+            count: BigUint::from(1u8),
+        }
+    }
+}
+
 impl Outcome {
     /// This will produce vector of outcomes, really
     pub fn apply(self, function: &DotExpr<Configuration>) -> CalcResult<Self> {
@@ -144,6 +154,8 @@ pub struct Configuration {
     events: Vec<Outcome>,
     /// Count of total number of events
     total_outcomes: BigUint,
+    /// Set of sides if those were the origin. For interoperability between sides and configuration
+    as_sides: Option<Vec<Value>>,
 }
 // TODO: implement normalization that would collapse same outcomes
 
@@ -158,11 +170,51 @@ impl Display for Configuration {
 }
 
 impl Configuration {
+    /// Construct and normalize the configuration
+    pub fn new(events: Vec<Outcome>, total_outcomes: BigUint) -> Self {
+        Self {
+            events,
+            total_outcomes,
+            as_sides: None,
+        }
+        .normalize()
+    }
+
+    /// Normalize by dividing counts by the greatest common divisor and collapsing same outcomes
+    pub fn normalize(self) -> Self {
+        let mut events: Vec<Outcome> = self
+            .events
+            .into_iter()
+            .fold(BTreeMap::new(), |mut map, outcome| {
+                *map.entry(outcome.throw).or_insert_with(BigUint::zero) += outcome.count;
+                map
+            })
+            .into_iter()
+            .map(|(throw, count)| Outcome { throw, count })
+            .collect();
+
+        let mut divisor = self.total_outcomes.clone();
+        for Outcome { count, .. } in &events {
+            divisor = num::integer::gcd(divisor, count.clone())
+        }
+        for x in &mut events {
+            x.count /= divisor.clone();
+        }
+        let total_outcomes = self.total_outcomes / divisor;
+
+        Configuration {
+            events,
+            total_outcomes,
+            as_sides: self.as_sides,
+        }
+    }
+
     /// Empty configuration with no events
     pub fn empty() -> Self {
         Self {
             events: Vec::new(),
             total_outcomes: BigUint::zero(),
+            as_sides: Some(Vec::new()),
         }
     }
 
@@ -171,16 +223,26 @@ impl Configuration {
     /// whatever we do with a single-sided die, it will produce the same result
     pub fn singular(value: Value) -> Self {
         Self {
-            events: vec![Outcome {
-                throw: Throw(vec![value]),
-                count: BigUint::from(1u8),
-            }],
+            as_sides: Some(vec![value.clone()]),
+            events: vec![value.into()],
             total_outcomes: BigUint::from(1u8),
         }
     }
 
+    /// Configuration representing a set of sides (or a single throw of them)
+    pub fn sides(mut sides: Vec<Value>) -> Self {
+        sides.sort();
+        Self {
+            total_outcomes: BigUint::from(sides.len()),
+            as_sides: Some(sides.clone()),
+            events: sides.into_iter().map(From::from).collect(),
+        }
+        .normalize()
+    }
+
     /// Configuration produced by throwing a specified die several times
-    pub fn simple_throw(sides: Vec<Value>, times: NumValue) -> CalcResult<Self> {
+    pub fn simple_throw(mut sides: Vec<Value>, times: NumValue) -> CalcResult<Self> {
+        sides.sort();
         if *times.denom() != 1 || *times.numer() < 0 {
             return Err(CalcError::UnexpectedArgument {
                 arg: times.to_string(),
@@ -204,7 +266,6 @@ impl Configuration {
         };
 
         let total_outcomes = BigUint::from(result.len());
-        // TODO: collapse same results
         let events = result
             .into_iter()
             .map(|mut values| {
@@ -214,12 +275,8 @@ impl Configuration {
                     count: BigUint::from(1u8),
                 }
             })
-            .collect::<Vec<_>>();
-
-        Ok(Configuration {
-            total_outcomes,
-            events,
-        })
+            .collect();
+        Ok(Configuration::new(events, total_outcomes))
     }
 
     /// Get the total count of possible (not necessarily different) events in this configuration
@@ -229,14 +286,50 @@ impl Configuration {
 
     /// Apply the specified dot expression to the self
     pub fn apply(self, function: DotExpr<Configuration>) -> CalcResult<Self> {
-        Ok(Configuration {
-            total_outcomes: self.total_outcomes * function.total_change(),
-            events: self
-                .events
+        Ok(Configuration::new(
+            self.events
                 .into_iter()
                 .map(|outcome| outcome.apply(&function))
                 .collect::<CalcResult<Vec<_>>>()?,
-        })
+            self.total_outcomes * function.total_change(),
+        ))
+    }
+}
+
+impl TryFrom<Configuration> for Vec<Value> {
+    type Error = CalcError;
+
+    fn try_from(value: Configuration) -> Result<Self, Self::Error> {
+        value
+            .as_sides
+            .clone()
+            .ok_or_else(|| CalcError::UnexpectedArgument {
+                arg: value.to_string(),
+                details: "Not a set of sides".to_string(),
+            })
+    }
+}
+
+impl TryFrom<Configuration> for NumValue {
+    type Error = CalcError;
+
+    fn try_from(value: Configuration) -> Result<Self, CalcError> {
+        if value.total_outcomes == 1u8.into() && value.events.len() == 1 {
+            if let Some(num) = value.events.iter().next().and_then(|value| {
+                if value.count == 1u8.into() {
+                    if let Some(Value::Numeric(num)) = value.throw.0.iter().next() {
+                        return Some(*num);
+                    }
+                }
+                return None;
+            }) {
+                return Ok(num);
+            }
+        }
+        return Err(CalcError::UnexpectedArgument {
+            arg: value.to_string(),
+            details: "Not a single numeric value".to_string(),
+        });
     }
 }
 
@@ -256,6 +349,12 @@ pub enum Sides {
     },
     #[display("{0}; {1}")]
     Union(Box<Sides>, Box<Sides>),
+}
+
+impl From<Value> for Sides {
+    fn from(value: Value) -> Self {
+        Self::Value(value)
+    }
 }
 
 #[derive(Clone, Debug, Display, Eq, PartialEq)]
