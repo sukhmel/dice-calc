@@ -1,18 +1,30 @@
-use crate::types::{
-    BasicFilter, DotExpr, Expr, Filter, LogicFilter, LogicOperator, NumValue, Operator, Sides,
-    Value,
-};
+use crate::types::BasicFilter;
+use crate::types::DotExpr;
+use crate::types::Expr;
+use crate::types::Filter;
+use crate::types::LogicFilter;
+use crate::types::LogicOperator;
+use crate::types::NumValue;
+use crate::types::Operator;
+use crate::types::Sides;
+use crate::types::Value;
 use num::range;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
-use winnow::ascii::{
-    alphanumeric1 as alphanumeric, digit1 as digit, escaped, multispace0 as spaces,
-};
-use winnow::error::{ErrMode, Error, ErrorKind};
-use winnow::token::{none_of, one_of};
-use winnow::{combinator, IResult, Parser};
+use winnow::ascii::alphanumeric1 as alphanumeric;
+use winnow::ascii::digit1 as digit;
+use winnow::ascii::escaped;
+use winnow::ascii::multispace0 as spaces;
+use winnow::combinator;
+use winnow::error::ErrMode;
+use winnow::error::Error;
+use winnow::error::ErrorKind;
+use winnow::token::none_of;
+use winnow::token::one_of;
+use winnow::IResult;
+use winnow::Parser;
 
 // TODO: use [`winnow::error::VerboseError`]
 

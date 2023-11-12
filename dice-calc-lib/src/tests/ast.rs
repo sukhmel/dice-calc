@@ -162,3 +162,23 @@ fn test_simple_throw_prod() {
         r#"{[4]x1, [6]x2, [8]x2, [9]x1, [10]x2, [12]x2, [15]x2, [16]x1, [20]x2, [25]x1}"#
     )
 }
+
+#[test]
+fn test_simple_throw_union() {
+    let expr = "(2 d 1..2).union(2 d 3..4)".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - dice with sides [1,2] thrown 2 times\n \
+          - union outcomes with configuration\n   \
+            - dice with sides [3,4] thrown 2 times"
+    );
+
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        "{\
+            [1, 1, 3, 3]x1, [1, 1, 3, 4]x2, [1, 1, 4, 4]x1, \
+            [1, 2, 3, 3]x2, [1, 2, 3, 4]x4, [1, 2, 4, 4]x2, \
+            [2, 2, 3, 3]x1, [2, 2, 3, 4]x2, [2, 2, 4, 4]x1\
+        }"
+    )
+}

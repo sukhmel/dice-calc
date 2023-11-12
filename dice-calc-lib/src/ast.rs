@@ -5,9 +5,15 @@ use itertools::Itertools;
 use num::BigUint;
 use parse_display::Display;
 
-use crate::types::{
-    BasicFilter, CalcResult, Configuration, DotExpr, Expr, Filter, NumValue, Sides, Value,
-};
+use crate::types::BasicFilter;
+use crate::types::CalcResult;
+use crate::types::Configuration;
+use crate::types::DotExpr;
+use crate::types::Expr;
+use crate::types::Filter;
+use crate::types::NumValue;
+use crate::types::Sides;
+use crate::types::Value;
 
 #[derive(Debug, Display)]
 #[display("{value}", bound(T : std::fmt::Display))]
@@ -181,7 +187,12 @@ impl Compiled for DotExpr<Expr> {
                 description.extend(expr_output.description);
                 (description, DotExpr::Remove(expr_output.value))
             }
-            DotExpr::Union(_) => todo!(),
+            DotExpr::Union(expr) => {
+                let expr_output = expr.compile()?.with_added_height(1);
+                let mut description = vec![("union outcomes with configuration".into(), 0)];
+                description.extend(expr_output.description);
+                (description, DotExpr::Union(expr_output.value))
+            }
             DotExpr::Intersection(_) => todo!(),
             DotExpr::Difference(_) => todo!(),
             DotExpr::Xor(_) => todo!(),

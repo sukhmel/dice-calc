@@ -1,13 +1,19 @@
 use std::collections::BTreeMap;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::mem;
 use std::str::FromStr;
 
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
+use anyhow::bail;
 use itertools::Itertools;
 use num::rational::Ratio;
-use num::{BigUint, FromPrimitive, Zero};
-use parse_display::{Display, FromStr};
+use num::BigUint;
+use num::FromPrimitive;
+use num::Zero;
+use parse_display::Display;
+use parse_display::FromStr;
 use winnow::error::Error;
 use winnow::Parser;
 
@@ -55,6 +61,24 @@ impl From<&str> for Value {
     }
 }
 
+struct ApplyOutput {
+    throw: Vec<Value>,
+    count: BigUint,
+}
+
+impl ApplyOutput {
+    fn single(value: Value) -> Vec<Self> {
+        vec![Self {
+            throw: vec![value],
+            count: BigUint::from(1u8),
+        }]
+    }
+
+    fn new(throw: Vec<Value>, count: BigUint) -> Self {
+        Self { throw, count }
+    }
+}
+
 /// A result of specific amount of dice being thrown
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Throw(Vec<Value>);
@@ -67,22 +91,27 @@ impl Display for Throw {
 }
 
 impl Throw {
-    pub fn apply(self, function: &DotExpr<Configuration>) -> CalcResult<Self> {
+    pub fn new(mut values: Vec<Value>) -> Self {
+        values.sort();
+        Self(values)
+    }
+
+    pub fn apply(self, function: &DotExpr<Configuration>) -> CalcResult<Vec<ApplyOutput>> {
         if self.0.is_empty() {
             return match function {
                 // TODO: return all possible outcomes
-                DotExpr::Xor(other) => Ok(other.events[0].throw.clone()),
-                _ => Ok(self),
+                DotExpr::Xor(other) => todo!("{other}"),
+                _ => Ok(vec![ApplyOutput::new(self.0, BigUint::from(1u8))]),
             };
         }
         let result = match function {
-            DotExpr::Count() => Throw(vec![self.0.len().into()]),
-            DotExpr::Sum() => Throw(vec![Value::Numeric(
-                self.try_into_num_vec()?.into_iter().sum(),
-            )]),
-            DotExpr::Prod() => Throw(vec![Value::Numeric(
+            DotExpr::Count() => ApplyOutput::single(self.0.len().into()),
+            DotExpr::Sum() => {
+                ApplyOutput::single(Value::Numeric(self.try_into_num_vec()?.into_iter().sum()))
+            }
+            DotExpr::Prod() => ApplyOutput::single(Value::Numeric(
                 self.try_into_num_vec()?.into_iter().product(),
-            )]),
+            )),
             DotExpr::Filter(_) => todo!(),
             DotExpr::Deduplicate(_) => todo!(),
             DotExpr::Low(_) => todo!(),
@@ -91,7 +120,15 @@ impl Throw {
             DotExpr::Max(_) => todo!(),
             DotExpr::Retain(_) => todo!(),
             DotExpr::Remove(_) => todo!(),
-            DotExpr::Union(_) => todo!(),
+            DotExpr::Union(conf) => conf
+                .events
+                .iter()
+                .map(|outcome| {
+                    let mut result = outcome.throw.0.clone();
+                    result.extend(self.0.clone());
+                    ApplyOutput::new(result, outcome.count.clone())
+                })
+                .collect(),
             DotExpr::Intersection(_) => todo!(),
             DotExpr::Difference(_) => todo!(),
             DotExpr::Xor(_) => todo!(),
@@ -107,8 +144,8 @@ impl Throw {
                 let Value::Numeric(num) = value else {
                     return Err(CalcError::UnexpectedArgument {
                         arg: value.to_string(),
-                        details: "throw has non-numeric parts".to_string()
-                    })
+                        details: "throw has non-numeric parts".to_string(),
+                    });
                 };
                 Ok(num)
             })
@@ -129,7 +166,7 @@ pub struct Outcome {
 impl From<Value> for Outcome {
     fn from(value: Value) -> Self {
         Self {
-            throw: Throw(vec![value]),
+            throw: Throw::new(vec![value]),
             count: BigUint::from(1u8),
         }
     }
@@ -137,11 +174,16 @@ impl From<Value> for Outcome {
 
 impl Outcome {
     /// This will produce vector of outcomes, really
-    pub fn apply(self, function: &DotExpr<Configuration>) -> CalcResult<Self> {
-        Ok(Self {
-            throw: self.throw.apply(function)?,
-            ..self
-        })
+    pub fn apply(self, function: &DotExpr<Configuration>) -> CalcResult<Vec<Self>> {
+        Ok(self
+            .throw
+            .apply(function)?
+            .into_iter()
+            .map(|output| Self {
+                throw: Throw::new(output.throw),
+                count: self.count.clone() * output.count,
+            })
+            .collect())
     }
 }
 
@@ -271,7 +313,7 @@ impl Configuration {
             .map(|mut values| {
                 values.sort();
                 Outcome {
-                    throw: Throw(values),
+                    throw: Throw::new(values),
                     count: BigUint::from(1u8),
                 }
             })
@@ -290,7 +332,10 @@ impl Configuration {
             self.events
                 .into_iter()
                 .map(|outcome| outcome.apply(&function))
-                .collect::<CalcResult<Vec<_>>>()?,
+                .fold_ok(Vec::new(), |mut vec, outcome| {
+                    vec.extend(outcome);
+                    vec
+                })?,
             self.total_outcomes * function.total_change(),
         ))
     }

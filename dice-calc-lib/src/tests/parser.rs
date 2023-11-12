@@ -1,5 +1,10 @@
 use super::*;
-use crate::parser::{basic_filter, dot_expr, expr, filter, number, sides};
+use crate::parser::basic_filter;
+use crate::parser::dot_expr;
+use crate::parser::expr;
+use crate::parser::filter;
+use crate::parser::number;
+use crate::parser::sides;
 
 #[test]
 fn test_number() {
