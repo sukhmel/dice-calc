@@ -182,3 +182,117 @@ fn test_simple_throw_union() {
         }"
     )
 }
+
+#[test]
+fn test_simple_throw_diff() {
+    let expr = "(2 d 1..2).difference(2 d 2..3)".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - dice with sides [1,2] thrown 2 times\n \
+          - subtract outcomes of configuration\n   \
+            - dice with sides [2,3] thrown 2 times"
+    );
+
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        "{[]x1, [1]x6, [2]x2, [1, 1]x4, [1, 2]x2, [2, 2]x1}"
+    )
+}
+
+#[test]
+fn test_simple_throw_set_diff() {
+    let expr = "(2 d 1..2).except(2 d 2..3)".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - dice with sides [1,2] thrown 2 times\n \
+          - subtract outcomes of configuration as a set\n   \
+            - dice with sides [2,3] thrown 2 times"
+    );
+
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        "{[]x3, [1]x6, [1, 1]x4, [1, 2]x2, [2, 2]x1}"
+    )
+}
+
+// [2,2].intersection([2,3]) = [2]
+#[test]
+fn test_simple_throw_intersect() {
+    let expr = "(2 d 1..2).intersection(2 d 2..3)".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - dice with sides [1,2] thrown 2 times\n \
+          - intersect outcomes with configuration\n   \
+            - dice with sides [2,3] thrown 2 times"
+    );
+
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        "{[]x7, [2]x8, [2, 2]x1}"
+    )
+}
+
+// [2,2].meet([2,3]) = [2,2]
+// TODO maybe this will be superseded by a filter?
+#[test]
+fn test_simple_throw_set_intersect() {
+    let expr = "(2 d 1..2).meet(2 d 2..3)".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - dice with sides [1,2] thrown 2 times\n \
+          - intersect outcomes with configuration as a set\n   \
+            - dice with sides [2,3] thrown 2 times"
+    );
+
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        "{[]x7, [2]x6, [2, 2]x3}"
+    )
+}
+
+// xor with [multiset] rules, i.e. [2,2,3,4].xor([1,2,3,3]) = [1,2,4]
+//
+// [multiset]: https://trizenx.blogspot.com/2016/05/multisets.html
+#[test]
+fn test_simple_throw_xor() {
+    let expr = "(2 d 1..2).xor(2 d 2..3)".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - dice with sides [1,2] thrown 2 times\n \
+          - exclusive or with configuration\n   \
+            - dice with sides [2,3] thrown 2 times"
+    );
+
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        "{\
+            []x1, [1, 2]x2, [1, 3]x4, [2, 3]x2, \
+            [1, 1, 2, 2]x1, [1, 1, 2, 3]x2, \
+            [1, 1, 3, 3]x1, [1, 2, 3, 3]x2, \
+            [2, 2, 3, 3]x1\
+        }"
+    )
+}
+
+
+// xor with set rules, i.e. [2,2,3,4].xor([1,2,3,3]) = [1,2,3,4]
+#[test]
+fn test_simple_throw_set_xor() {
+    let expr = "(2 d 1..2).not_eq(2 d 2..3)".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - dice with sides [1,2] thrown 2 times\n \
+          - exclusive or with configuration as a set\n   \
+            - dice with sides [2,3] thrown 2 times"
+    );
+
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        "{\
+            []x1, [1]x2, [3]x2, [1, 3]x4, \
+            [1, 1, 2, 2]x1, [1, 1, 2, 3]x2, \
+            [1, 1, 3, 3]x1, [1, 2, 3, 3]x2, \
+            [2, 2, 3, 3]x1\
+        }"
+    )
+}

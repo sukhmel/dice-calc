@@ -50,8 +50,11 @@ The plan is to have a calculator allowing for
 - `.retain(..)` for reducing the amount of dice in events by limiting the maximum
 - `.remove(..)` for reducing the amount of dice by removing a specified amount
 - `.union(..)` for uniting the throws in two configurations
+- `.meet(..)` to keep all throws in configuration that are present at least once in the argument
 - `.intersection(..)` for intersecting the throws in two configurations
 - `.difference(..)` for subtracting one configuration's throws from another configuration's
+- `.except(..)` for keeping only configuration's throws that are never in another configuration's, i.e. like
+  `.difference(..)` but treat an argument as a set instead of a multiset
 - `.sample(N)` for getting specified amount of throws from given configuration
 
 Also features that I'd like to try implementing:

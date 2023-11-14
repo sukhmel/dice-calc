@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -80,9 +81,21 @@ impl ApplyOutput {
 }
 
 /// A result of specific amount of dice being thrown
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Ord)]
 pub struct Throw(Vec<Value>);
 // TODO: use set?
+
+impl PartialOrd for Throw {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.0.len().partial_cmp(&other.0.len()).and_then(|order| {
+            if order == Ordering::Equal {
+                self.0.partial_cmp(&other.0)
+            } else {
+                Some(order)
+            }
+        })
+    }
+}
 
 impl Display for Throw {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -100,7 +113,11 @@ impl Throw {
         if self.0.is_empty() {
             return match function {
                 // TODO: return all possible outcomes
-                DotExpr::Xor(other) => todo!("{other}"),
+                DotExpr::Xor(other) => Ok(other
+                    .events
+                    .iter()
+                    .map(|outcome| ApplyOutput::new(outcome.throw.0.clone(), outcome.count.clone()))
+                    .collect()),
                 _ => Ok(vec![ApplyOutput::new(self.0, BigUint::from(1u8))]),
             };
         }
@@ -129,9 +146,90 @@ impl Throw {
                     ApplyOutput::new(result, outcome.count.clone())
                 })
                 .collect(),
-            DotExpr::Intersection(_) => todo!(),
-            DotExpr::Difference(_) => todo!(),
-            DotExpr::Xor(_) => todo!(),
+            DotExpr::Meet(conf) => conf
+                .events
+                .iter()
+                .map(|outcome| {
+                    let mut result = self.0.clone();
+                    result.retain(|value| outcome.throw.0.contains(value));
+                    ApplyOutput::new(result, outcome.count.clone())
+                })
+                .collect(),
+            DotExpr::Intersection(conf) => conf
+                .events
+                .iter()
+                .map(|outcome| {
+                    let mut result = Vec::new();
+                    let mut buffer = outcome.throw.0.clone();
+                    for value in &self.0 {
+                        if let Some(pos) = buffer.iter().position(|v| v == value) {
+                            buffer.remove(pos);
+                            result.push(value.clone());
+                        }
+                    }
+                    ApplyOutput::new(result, outcome.count.clone())
+                })
+                .collect(),
+            DotExpr::Except(conf) => conf
+                .events
+                .iter()
+                .map(|outcome| {
+                    let mut result = self.0.clone();
+                    result.retain(|value| !outcome.throw.0.contains(value));
+                    ApplyOutput::new(result, outcome.count.clone())
+                })
+                .collect(),
+            DotExpr::Difference(conf) => conf
+                .events
+                .iter()
+                .map(|outcome| {
+                    let mut result = Vec::new();
+                    let mut buffer = outcome.throw.0.clone();
+                    for value in &self.0 {
+                        if let Some(pos) = buffer.iter().position(|v| v == value) {
+                            buffer.remove(pos);
+                        } else {
+                            result.push(value.clone());
+                        }
+                    }
+                    ApplyOutput::new(result, outcome.count.clone())
+                })
+                .collect(),
+            DotExpr::Xor(conf) => conf
+                .events
+                .iter()
+                .map(|outcome| {
+                    let mut result = Vec::new();
+                    let mut buffer = outcome.throw.0.clone();
+                    for value in &self.0 {
+                        if let Some(pos) = buffer.iter().position(|v| v == value) {
+                            buffer.remove(pos);
+                        } else {
+                            result.push(value.clone());
+                        }
+                    }
+                    result.extend(buffer);
+                    ApplyOutput::new(result, outcome.count.clone())
+                })
+                .collect(),
+            DotExpr::NotEq(conf) => conf
+                .events
+                .iter()
+                .map(|outcome| {
+                    let mut result = Vec::new();
+                    outcome.throw.0.iter().for_each(|value| {
+                        if !self.0.contains(value) {
+                            result.push(value.clone());
+                        }
+                    });
+                    self.0.iter().for_each(|value| {
+                        if !outcome.throw.0.contains(value) {
+                            result.push(value.clone());
+                        }
+                    });
+                    ApplyOutput::new(result, outcome.count.clone())
+                })
+                .collect(),
             DotExpr::Sample(_) => todo!(),
         };
         Ok(result)
@@ -156,11 +254,17 @@ impl Throw {
 /// A [throw] with the count of outcomes that lead to it out of total outcomes
 ///
 /// [throw]: Throw
-#[derive(Clone, Debug, Display, PartialEq, Eq)]
+#[derive(Clone, Debug, Display, PartialEq, Eq, Ord)]
 #[display("{throw}x{count}")]
 pub struct Outcome {
     throw: Throw,
     count: BigUint,
+}
+
+impl PartialOrd for Outcome {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.throw.partial_cmp(&other.throw)
+    }
 }
 
 impl From<Value> for Outcome {
@@ -175,6 +279,7 @@ impl From<Value> for Outcome {
 impl Outcome {
     /// This will produce vector of outcomes, really
     pub fn apply(self, function: &DotExpr<Configuration>) -> CalcResult<Vec<Self>> {
+        // TODO: when every DotExpr is implemented, check if apply may take a single outcome
         Ok(self
             .throw
             .apply(function)?
@@ -242,6 +347,8 @@ impl Configuration {
         for x in &mut events {
             x.count /= divisor.clone();
         }
+        events.sort();
+
         let total_outcomes = self.total_outcomes / divisor;
 
         Configuration {
@@ -470,18 +577,31 @@ pub enum DotExpr<T: Eq + PartialEq> {
     /// Leave only N biggest elements, default is 1
     #[display("max({0})")]
     Max(T),
+    /// Keep only a subset of elements
     #[display("retain({0})")]
     Retain(Filter<T>),
+    /// Opposite of [`Retain`]
     #[display("remove({0})")]
     Remove(Filter<T>),
     #[display("union({0})")]
     Union(T),
     #[display("intersect({0})")]
     Intersection(T),
+    #[display("intersect({0})")]
+    /// Same as [`Intersection`], but keep all elements that are present at least once in the
+    /// argument
+    Meet(T),
     #[display("diff({0})")]
     Difference(T),
+    /// Same as [`Difference`], but remove all elements that are present at least once in the
+    /// argument
+    #[display("except({0})")]
+    Except(T),
     #[display("xor({0})")]
     Xor(T),
+    /// Same as [`Xor`], but treat second argument as a set
+    #[display("xor({0})")]
+    NotEq(T),
     // TODO: sample should be top level operation like Help
     #[display("sample({0})")]
     Sample(usize),
@@ -500,8 +620,11 @@ impl DotExpr<Configuration> {
             | DotExpr::Min(conf)
             | DotExpr::Max(conf)
             | DotExpr::Union(conf)
+            | DotExpr::Meet(conf)
             | DotExpr::Intersection(conf)
+            | DotExpr::Except(conf)
             | DotExpr::Difference(conf)
+            | DotExpr::NotEq(conf)
             | DotExpr::Xor(conf) => conf.total(),
         }
     }

@@ -158,6 +158,10 @@ pub fn dot_expr(i: &str) -> IResult<&str, DotExpr<Expr>> {
                 combinator::terminated(expr, ")").map(DotExpr::Union),
             ),
             combinator::preceded(
+                "meet(",
+                combinator::terminated(expr, ")").map(DotExpr::Meet),
+            ),
+            combinator::preceded(
                 "intersection(",
                 combinator::terminated(expr, ")").map(DotExpr::Intersection),
             ),
@@ -165,6 +169,11 @@ pub fn dot_expr(i: &str) -> IResult<&str, DotExpr<Expr>> {
                 "difference(",
                 combinator::terminated(expr, ")").map(DotExpr::Difference),
             ),
+            combinator::preceded(
+                "except(",
+                combinator::terminated(expr, ")").map(DotExpr::Except),
+            ),
+            combinator::preceded("not_eq(", combinator::terminated(expr, ")").map(DotExpr::NotEq)),
             combinator::preceded("xor(", combinator::terminated(expr, ")").map(DotExpr::Xor)),
             combinator::preceded(
                 "filter(",

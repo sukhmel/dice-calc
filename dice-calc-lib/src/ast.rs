@@ -1,8 +1,5 @@
-use std::fmt::Formatter;
-
 use crate::error::CalcError;
 use itertools::Itertools;
-use num::BigUint;
 use parse_display::Display;
 
 use crate::types::BasicFilter;
@@ -11,7 +8,6 @@ use crate::types::Configuration;
 use crate::types::DotExpr;
 use crate::types::Expr;
 use crate::types::Filter;
-use crate::types::NumValue;
 use crate::types::Sides;
 use crate::types::Value;
 
@@ -193,9 +189,43 @@ impl Compiled for DotExpr<Expr> {
                 description.extend(expr_output.description);
                 (description, DotExpr::Union(expr_output.value))
             }
-            DotExpr::Intersection(_) => todo!(),
-            DotExpr::Difference(_) => todo!(),
-            DotExpr::Xor(_) => todo!(),
+            DotExpr::Meet(expr) => {
+                let expr_output = expr.compile()?.with_added_height(1);
+                let mut description = vec![("intersect outcomes with configuration as a set".into(), 0)];
+                description.extend(expr_output.description);
+                (description, DotExpr::Meet(expr_output.value))
+            }
+            DotExpr::Intersection(expr) => {
+                let expr_output = expr.compile()?.with_added_height(1);
+                let mut description = vec![("intersect outcomes with configuration".into(), 0)];
+                description.extend(expr_output.description);
+                (description, DotExpr::Intersection(expr_output.value))
+            }
+            DotExpr::Difference(expr) => {
+                let expr_output = expr.compile()?.with_added_height(1);
+                let mut description = vec![("subtract outcomes of configuration".into(), 0)];
+                description.extend(expr_output.description);
+                (description, DotExpr::Difference(expr_output.value))
+            }
+            DotExpr::Except(expr) => {
+                let expr_output = expr.compile()?.with_added_height(1);
+                let mut description =
+                    vec![("subtract outcomes of configuration as a set".into(), 0)];
+                description.extend(expr_output.description);
+                (description, DotExpr::Except(expr_output.value))
+            }
+            DotExpr::NotEq(expr) => {
+                let expr_output = expr.compile()?.with_added_height(1);
+                let mut description = vec![("exclusive or with configuration as a set".into(), 0)];
+                description.extend(expr_output.description);
+                (description, DotExpr::NotEq(expr_output.value))
+            }
+            DotExpr::Xor(expr) => {
+                let expr_output = expr.compile()?.with_added_height(1);
+                let mut description = vec![("exclusive or with configuration".into(), 0)];
+                description.extend(expr_output.description);
+                (description, DotExpr::Xor(expr_output.value))
+            }
             DotExpr::Sample(_) => todo!(),
             DotExpr::Count() => (
                 vec![("count results in each outcome of configuration".into(), 0)],
