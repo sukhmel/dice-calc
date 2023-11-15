@@ -1,5 +1,11 @@
 use crate::ast::Compiled;
 use crate::types::Expr;
+use crate::types::NumValue;
+use crate::types::Outcome;
+use crate::types::Value;
+use num::BigUint;
+use num::ToPrimitive;
+use num::Zero;
 
 #[test]
 fn test_single_num_value() {
@@ -91,6 +97,111 @@ fn test_sides() {
 }
 
 #[test]
+fn test_sample() {
+    let expr = "1..10.sample(3)".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - all values from 1 to 10 inclusive\n \
+          - take 3 samples"
+    );
+
+    // Sample randomizes
+    for _ in 0..10 {
+        let result = expr.clone().compile().unwrap().value();
+        assert_ne!(result.events().len(), 0);
+        assert_ne!(result.total(), Zero::zero());
+        match result.events().len() {
+            // means we hit same value 3 times in a row
+            1 => {
+                assert_eq!(result.total().to_usize().unwrap(), 1);
+                assert!(result.to_string().as_str().ends_with(r#"]x1}"#));
+                assert!(result.to_string().as_str().starts_with(r#"{["#));
+                assert!(result.events()[0] < Outcome::from(Value::from(11)));
+                assert!(result.events()[0] > Outcome::from(Value::from(0)));
+            }
+            // means we hit same value 2 times in a row, but the third is different
+            2 => {
+                // this configuration can't be simplified thus total is still 3
+                assert_eq!(result.total().to_usize().unwrap(), 3);
+                assert!(result.to_string().as_str().contains(r#"]x1"#));
+                assert!(result.to_string().as_str().contains(r#"]x2"#));
+                assert!(result.events()[0] < Outcome::from(Value::from(11)));
+                assert!(result.events()[0] > Outcome::from(Value::from(0)));
+                assert!(result.events()[1] < Outcome::from(Value::from(11)));
+                assert!(result.events()[1] > Outcome::from(Value::from(0)));
+            }
+            // means all the samples were different
+            3 => {
+                assert_eq!(result.total().to_usize().unwrap(), 3);
+                assert!(result.to_string().as_str().contains(r#"]x1}"#));
+                assert!(result.to_string().as_str().contains(r#"]x1, ["#));
+                for i in 0..3 {
+                    assert!(result.events()[i] < Outcome::from(Value::from(11)));
+                    assert!(result.events()[i] > Outcome::from(Value::from(0)));
+                }
+            }
+            _ => unreachable!("should be 1, 2, or 3"),
+        }
+    }
+}
+#[test]
+fn test_sample_big_n() {
+    let expr = "1.sample(3)".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - value 1 converted to a single-sided die thrown once\n \
+          - take 3 samples"
+    );
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        r#"{[1]x1}"#
+    )
+}
+
+#[test]
+fn test_rand() {
+    let expr = "1..10.rand(3)".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - all values from 1 to 10 inclusive\n \
+          - take 3 random outcomes"
+    );
+
+    // Sample randomizes
+    for _ in 0..10 {
+        let result = expr.clone().compile().unwrap().value();
+        assert_eq!(result.total().to_usize().unwrap(), 3);
+        assert!(result.to_string().as_str().contains(r#"]x1}"#));
+        assert!(result.to_string().as_str().contains(r#"]x1, ["#));
+        for i in 0..3 {
+            assert!(result.events()[i] < Outcome::from(Value::from(11)));
+            assert!(result.events()[i] > Outcome::from(Value::from(0)));
+        }
+    }
+}
+#[test]
+fn test_rand_big_n() {
+    let expr = "0..100.rand(111)".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - all values from 0 to 100 inclusive\n \
+          - take 111 random outcomes"
+    );
+    for attempt in 0..10 {
+        let configuration = expr.clone().compile().unwrap().value();
+        let events = configuration.events();
+        assert_eq!(events.len(), 101, "{configuration:?}");
+        for i in 0..101 {
+            assert_eq!(
+                events[i],
+                Outcome::from(Value::from(i)),
+                "{configuration:?} @ {attempt}"
+            );
+        }
+    }
+}
+
+#[test]
 fn test_seq() {
     let expr = "2..5".parse::<Expr>().unwrap();
     assert_eq!(
@@ -103,6 +214,7 @@ fn test_seq() {
         r#"{[2]x1, [3]x1, [4]x1, [5]x1}"#
     )
 }
+
 #[test]
 fn test_seq_in_parens() {
     let expr = "{2..5}".parse::<Expr>().unwrap();
@@ -142,6 +254,20 @@ fn test_naked_step_seq() {
     assert_eq!(
         expr.compile().unwrap().value().to_string().as_str(),
         r#"{[-6]x1, [-2]x1, [2]x1}"#
+    )
+}
+
+#[test]
+fn test_naked_step_seq_fwd() {
+    let expr = "2, 32 .. 62".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - all values from 2 to 62 inclusive with a step of 30 (total 3)"
+    );
+
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        r#"{[2]x1, [32]x1, [62]x1}"#
     )
 }
 

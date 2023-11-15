@@ -98,7 +98,6 @@ impl Sides {
             }
             Sides::StepSequence(seq) => {
                 let mut value = seq.first();
-
                 for _ in 1..seq.count() {
                     result.push(value.clone().into());
                     value += seq.step();
@@ -247,7 +246,14 @@ impl Compiled for DotExpr<Expr> {
                 description.extend(expr_output.description);
                 (description, DotExpr::Xor(expr_output.value))
             }
-            DotExpr::Sample(_) => todo!(),
+            DotExpr::Sample(count) => (
+                vec![(format!("take {count} samples"), 0)],
+                DotExpr::Sample(count),
+            ),
+            DotExpr::Rand(count) => (
+                vec![(format!("take {count} random outcomes"), 0)],
+                DotExpr::Rand(count),
+            ),
             DotExpr::Count() => (
                 vec![("count results in each outcome of configuration".into(), 0)],
                 DotExpr::Count(),

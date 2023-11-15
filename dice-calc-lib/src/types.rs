@@ -12,9 +12,15 @@ use itertools::Itertools;
 use num::rational::Ratio;
 use num::BigUint;
 use num::FromPrimitive;
+use num::One;
+use num::ToPrimitive;
 use num::Zero;
 use parse_display::Display;
 use parse_display::FromStr;
+use rand::distributions::Distribution;
+use rand::distributions::WeightedIndex;
+use rand::random;
+use rand::Rng;
 use winnow::error::Error;
 use winnow::Parser;
 
@@ -124,10 +130,9 @@ impl Throw {
         Self(values)
     }
 
-    pub fn apply(self, function: &DotExpr<Configuration>) -> CalcResult<Vec<ApplyOutput>> {
+    fn apply(self, function: &DotExpr<Configuration>) -> CalcResult<Vec<ApplyOutput>> {
         if self.0.is_empty() {
             return match function {
-                // TODO: return all possible outcomes
                 DotExpr::Xor(other) => Ok(other
                     .events
                     .iter()
@@ -245,7 +250,7 @@ impl Throw {
                     ApplyOutput::new(result, outcome.count.clone())
                 })
                 .collect(),
-            DotExpr::Sample(_) => todo!(),
+            DotExpr::Sample(_) | DotExpr::Rand(_) => unreachable!(),
         };
         Ok(result)
     }
@@ -450,6 +455,14 @@ impl Configuration {
 
     /// Apply the specified dot expression to the self
     pub fn apply(self, function: DotExpr<Configuration>) -> CalcResult<Self> {
+        if let DotExpr::Sample(count) = &function {
+            return self.sample(*count);
+        }
+
+        if let DotExpr::Rand(count) = &function {
+            return self.rand(*count);
+        }
+
         Ok(Configuration::new(
             self.events
                 .into_iter()
@@ -460,6 +473,76 @@ impl Configuration {
                 })?,
             self.total_outcomes * function.total_change(),
         ))
+    }
+
+    /// Sample from the configuration `count` times without exhausting it (may produce duplicates)
+    fn sample(self, count: usize) -> CalcResult<Self> {
+        if self.total_outcomes == 0u8.into() {
+            return Ok(Configuration::empty());
+        }
+
+        let weights = self.weights()?;
+        let mut distribution = WeightedIndex::new(weights).map_err(|err| {
+            CalcError::InternalError(format!("Error in weighted sampling: {err:#}"))
+        })?;
+        let mut result = Vec::new();
+        let mut rng = rand::thread_rng();
+        for _ in 0..count {
+            let mut outcome = self.events[distribution.sample(&mut rng)].clone();
+            outcome.count = 1u8.into();
+            result.push(outcome);
+        }
+
+        return Ok(Configuration::new(result, (count).into()));
+    }
+
+    /// Sample from the configuration `count` times exhausting it
+    fn rand(self, count: usize) -> CalcResult<Self> {
+        if self.total_outcomes == 0u8.into() {
+            return Ok(Configuration::empty());
+        }
+
+        if self.total_outcomes <= count.into() {
+            return Ok(self);
+        }
+
+        let mut weights = self.weights()?;
+        let mut distribution = WeightedIndex::new(&weights).map_err(|err| {
+            CalcError::InternalError(format!("Error in weighted sampling: {err:#}"))
+        })?;
+        let mut rng = rand::thread_rng();
+        let mut result = Vec::new();
+        for _ in 0..count {
+            let i = distribution.sample(&mut rng);
+            weights[i] -= 1;
+            distribution = WeightedIndex::new(&weights).map_err(|err| {
+                CalcError::InternalError(format!("Error in weighted sampling: {err:#}"))
+            })?;
+            let mut outcome = self.events[i].clone();
+            outcome.count = 1u8.into();
+            result.push(outcome);
+        }
+
+        return Ok(Configuration::new(result, count.into()));
+    }
+
+    /// Obtain distribution weights associated with events of configuration
+    fn weights(&self) -> Result<Vec<u128>, CalcError> {
+        let weights = self
+            .events
+            .iter()
+            .map(|outcome| {
+                outcome.count.to_u128().ok_or(CalcError::InternalError(
+                    "Can't represent count as u128".into(),
+                ))
+            })
+            .collect::<CalcResult<Vec<u128>>>()?;
+        Ok(weights)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn events(&self) -> &Vec<Outcome> {
+        &self.events
     }
 }
 
@@ -542,9 +625,16 @@ impl StepSequence {
         } else {
             (begin - second, end, begin)
         };
+        if step.numer().is_zero() {
+            return Err(CalcError::UnexpectedArgument {
+                arg: format!("{begin},{second}..{end}"),
+                details: format!("step must not be zero"),
+            });
+        }
+
         let step_count = (last - first) / step;
 
-        if *step_count.denom() != 1 {
+        if !step_count.denom().is_one() {
             Err(CalcError::UnexpectedArgument {
                 arg: format!("{begin},{second}..{end}"),
                 details: format!(
@@ -552,7 +642,7 @@ impl StepSequence {
                     last - first
                 ),
             })
-        } else if *step_count.numer() == 0 {
+        } else if step_count.numer().is_zero() {
             Err(CalcError::UnexpectedArgument {
                 arg: format!("{begin},{second}..{end}"),
                 details: format!(
@@ -602,13 +692,10 @@ impl Display for StepSequence {
 impl TryFrom<(NumValue, (NumValue, NumValue))> for Sides {
     type Error = CalcError;
 
-    fn try_from(
-        values: (NumValue, (NumValue, NumValue)),
-    ) -> Result<Self, Self::Error> {
+    fn try_from(values: (NumValue, (NumValue, NumValue))) -> Result<Self, Self::Error> {
         StepSequence::try_from(values).map(Self::StepSequence)
     }
 }
-
 
 impl TryFrom<(NumValue, (NumValue, NumValue))> for StepSequence {
     type Error = CalcError;
@@ -719,17 +806,23 @@ pub enum DotExpr<T: Eq + PartialEq> {
     /// Same as [`Xor`], but treat second argument as a set
     #[display("xor({0})")]
     NotEq(T),
+    /// Take a random sample N times each time using the original configuration
     // TODO: sample should be top level operation like Help
     #[display("sample({0})")]
     Sample(usize),
+    /// Take a random sample of N elements exhausting original configuration
+    #[display("rand({0})")]
+    Rand(usize),
 }
 
 impl DotExpr<Configuration> {
     pub fn total_change(&self) -> BigUint {
         match self {
-            DotExpr::Count() | DotExpr::Sum() | DotExpr::Prod() | DotExpr::Sample(_) => {
-                BigUint::from(1u8)
-            }
+            DotExpr::Count()
+            | DotExpr::Sum()
+            | DotExpr::Prod()
+            | DotExpr::Sample(_)
+            | DotExpr::Rand(_) => BigUint::from(1u8),
             DotExpr::Retain(_) | DotExpr::Remove(_) | DotExpr::Filter(_) => todo!(),
             DotExpr::Deduplicate(conf)
             | DotExpr::Low(conf)

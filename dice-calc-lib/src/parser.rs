@@ -212,6 +212,12 @@ pub fn dot_expr(i: &str) -> IResult<&str, DotExpr<Expr>> {
                     .try_map(FromStr::from_str)
                     .map(DotExpr::Sample),
             ),
+            combinator::preceded(
+                "rand(",
+                combinator::terminated(digit, ")")
+                    .try_map(FromStr::from_str)
+                    .map(DotExpr::Rand),
+            ),
         )),
         spaces,
     )

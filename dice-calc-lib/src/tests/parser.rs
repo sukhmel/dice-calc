@@ -1,12 +1,13 @@
-use winnow::Parser;
 use super::*;
-use crate::parser::{basic_filter, step_interval};
+use crate::parser::basic_filter;
 use crate::parser::expr;
 use crate::parser::filter;
 use crate::parser::interval;
 use crate::parser::number;
 use crate::parser::sides;
+use crate::parser::step_interval;
 use crate::types::StepSequence;
+use winnow::Parser;
 
 #[test]
 fn test_number() {
@@ -69,11 +70,19 @@ fn test_number() {
 fn test_interval() {
     assert_eq!(
         interval(r#"1..2"#).map(|(i, (a, b))| (i, format!("{:?}", (a, b)), format!("{a}, {b}"))),
-        Ok(("", String::from("(Ratio { numer: 1, denom: 1 }, Ratio { numer: 2, denom: 1 })"), String::from("1, 2")))
+        Ok((
+            "",
+            String::from("(Ratio { numer: 1, denom: 1 }, Ratio { numer: 2, denom: 1 })"),
+            String::from("1, 2")
+        ))
     );
     assert_eq!(
         interval(r#"1,..2"#).map(|(i, (a, b))| (i, format!("{:?}", (a, b)), format!("{a}, {b}"))),
-        Ok(("", String::from("(Ratio { numer: 1, denom: 1 }, Ratio { numer: 2, denom: 1 })"), String::from("1, 2")))
+        Ok((
+            "",
+            String::from("(Ratio { numer: 1, denom: 1 }, Ratio { numer: 2, denom: 1 })"),
+            String::from("1, 2")
+        ))
     );
     assert_eq!(
         step_interval(r#"1,2..3"#).map(|(i, (a, (b, c)))| (i, format!("{:?}", (a, b, c)), format!("{a}, {b}, {c}"))),
@@ -84,11 +93,15 @@ fn test_interval() {
         Ok(("", String::from("(Ratio { numer: 1, denom: 1 }, Ratio { numer: 2, denom: 1 }, Ratio { numer: 3, denom: 1 })"), String::from("1, 2, 3")))
     );
     assert_eq!(
-        step_interval(r#"1,2..3"#).map(|(_, value)| StepSequence::try_from(value).unwrap()).unwrap(),
+        step_interval(r#"1,2..3"#)
+            .map(|(_, value)| StepSequence::try_from(value).unwrap())
+            .unwrap(),
         StepSequence::new(1.into(), 2.into(), 3.into()).unwrap()
     );
     assert_eq!(
-        step_interval(r#"1,2,..3"#).map(|(_, value)| StepSequence::try_from(value).unwrap()).unwrap(),
+        step_interval(r#"1,2,..3"#)
+            .map(|(_, value)| StepSequence::try_from(value).unwrap())
+            .unwrap(),
         StepSequence::new(1.into(), 2.into(), 3.into()).unwrap()
     );
 }

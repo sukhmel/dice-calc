@@ -55,7 +55,8 @@ The plan is to have a calculator allowing for
 - `.difference(..)` for subtracting one configuration's throws from another configuration's
 - `.except(..)` for keeping only configuration's throws that are never in another configuration's, i.e. like
   `.difference(..)` but treat an argument as a set instead of a multiset
-- `.sample(N)` for getting specified amount of throws from given configuration
+- `.sample(N)` for getting specified amount of throws from given configuration, N may be bigger than total
+- `.rand(N)` for getting specified amount of events from given configuration, when N >= total this is NOP
 
 Also features that I'd like to try implementing:
 
