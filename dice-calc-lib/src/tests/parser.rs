@@ -1,10 +1,12 @@
+use winnow::Parser;
 use super::*;
-use crate::parser::basic_filter;
-use crate::parser::dot_expr;
+use crate::parser::{basic_filter, step_interval};
 use crate::parser::expr;
 use crate::parser::filter;
+use crate::parser::interval;
 use crate::parser::number;
 use crate::parser::sides;
+use crate::types::StepSequence;
 
 #[test]
 fn test_number() {
@@ -43,6 +45,52 @@ fn test_number() {
             String::from("-1"),
         ))
     );
+
+    assert_eq!(
+        number(r#"11/10"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
+        Ok((
+            "",
+            String::from("Ratio { numer: 11, denom: 10 }"),
+            String::from("11/10"),
+        ))
+    );
+
+    assert_eq!(
+        number(r#"-0.1"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
+        Ok((
+            "",
+            String::from("Ratio { numer: -1, denom: 10 }"),
+            String::from("-1/10"),
+        ))
+    );
+}
+
+#[test]
+fn test_interval() {
+    assert_eq!(
+        interval(r#"1..2"#).map(|(i, (a, b))| (i, format!("{:?}", (a, b)), format!("{a}, {b}"))),
+        Ok(("", String::from("(Ratio { numer: 1, denom: 1 }, Ratio { numer: 2, denom: 1 })"), String::from("1, 2")))
+    );
+    assert_eq!(
+        interval(r#"1,..2"#).map(|(i, (a, b))| (i, format!("{:?}", (a, b)), format!("{a}, {b}"))),
+        Ok(("", String::from("(Ratio { numer: 1, denom: 1 }, Ratio { numer: 2, denom: 1 })"), String::from("1, 2")))
+    );
+    assert_eq!(
+        step_interval(r#"1,2..3"#).map(|(i, (a, (b, c)))| (i, format!("{:?}", (a, b, c)), format!("{a}, {b}, {c}"))),
+        Ok(("", String::from("(Ratio { numer: 1, denom: 1 }, Ratio { numer: 2, denom: 1 }, Ratio { numer: 3, denom: 1 })"), String::from("1, 2, 3")))
+    );
+    assert_eq!(
+        step_interval(r#"1,2,..3"#).map(|(i, (a, (b, c)))| (i, format!("{:?}", (a, b, c)), format!("{a}, {b}, {c}"))),
+        Ok(("", String::from("(Ratio { numer: 1, denom: 1 }, Ratio { numer: 2, denom: 1 }, Ratio { numer: 3, denom: 1 })"), String::from("1, 2, 3")))
+    );
+    assert_eq!(
+        step_interval(r#"1,2..3"#).map(|(_, value)| StepSequence::try_from(value).unwrap()).unwrap(),
+        StepSequence::new(1.into(), 2.into(), 3.into()).unwrap()
+    );
+    assert_eq!(
+        step_interval(r#"1,2,..3"#).map(|(_, value)| StepSequence::try_from(value).unwrap()).unwrap(),
+        StepSequence::new(1.into(), 2.into(), 3.into()).unwrap()
+    );
 }
 
 #[test]
@@ -64,10 +112,18 @@ fn test_naked_sides() {
         ))
     );
     assert_eq!(
+        expr(r#"1 + 2,3,..33"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
+        Ok((
+            "",
+            String::from("Add(Value(Numeric(Ratio { numer: 1, denom: 1 })), Sides(StepSequence(StepSequence { first: Ratio { numer: 2, denom: 1 }, step: Ratio { numer: 1, denom: 1 }, last: Ratio { numer: 33, denom: 1 }, count: 32 })))"),
+            String::from("1 + {2,3..33}"),
+        ))
+    );
+    assert_eq!(
         expr(r#"1 + 2,3..33"#).map(|(i, x)| (i, format!("{:?}", x), format!("{}", x))),
         Ok((
             "",
-            String::from("Add(Value(Numeric(Ratio { numer: 1, denom: 1 })), Sides(StepSequence { first: Ratio { numer: 2, denom: 1 }, second: Ratio { numer: 3, denom: 1 }, last: Ratio { numer: 33, denom: 1 } }))"),
+            String::from("Add(Value(Numeric(Ratio { numer: 1, denom: 1 })), Sides(StepSequence(StepSequence { first: Ratio { numer: 2, denom: 1 }, step: Ratio { numer: 1, denom: 1 }, last: Ratio { numer: 33, denom: 1 }, count: 32 })))"),
             String::from("1 + {2,3..33}"),
         ))
     );
@@ -116,20 +172,23 @@ fn test_sides() {
                                 denom: 1,
                             },
                         ),
-                        StepSequence {
-                            first: Ratio {
-                                numer: 6,
-                                denom: 1,
+                        StepSequence(
+                            StepSequence {
+                                first: Ratio {
+                                    numer: 6,
+                                    denom: 1,
+                                },
+                                step: Ratio {
+                                    numer: 2,
+                                    denom: 1,
+                                },
+                                last: Ratio {
+                                    numer: 22,
+                                    denom: 1,
+                                },
+                                count: 9,
                             },
-                            second: Ratio {
-                                numer: 8,
-                                denom: 1,
-                            },
-                            last: Ratio {
-                                numer: 22,
-                                denom: 1,
-                            },
-                        },
+                        ),
                     ),
                     Value(
                         Numeric(
@@ -495,20 +554,23 @@ fn test_expr() {
                     denom: 1,
                 },
             ),
-            StepSequence {
-                first: Ratio {
-                    numer: 2,
-                    denom: 1,
+            StepSequence(
+                StepSequence {
+                    first: Ratio {
+                        numer: 2,
+                        denom: 1,
+                    },
+                    step: Ratio {
+                        numer: 3,
+                        denom: 1,
+                    },
+                    last: Ratio {
+                        numer: 14,
+                        denom: 1,
+                    },
+                    count: 5,
                 },
-                second: Ratio {
-                    numer: 5,
-                    denom: 1,
-                },
-                last: Ratio {
-                    numer: 14,
-                    denom: 1,
-                },
-            },
+            ),
         ),
         Value(
             Numeric(
@@ -548,20 +610,23 @@ fn test_expr() {
                                 denom: 1,
                             },
                         ),
-                        StepSequence {
-                            first: Ratio {
-                                numer: 2,
-                                denom: 1,
+                        StepSequence(
+                            StepSequence {
+                                first: Ratio {
+                                    numer: 2,
+                                    denom: 1,
+                                },
+                                step: Ratio {
+                                    numer: 3,
+                                    denom: 1,
+                                },
+                                last: Ratio {
+                                    numer: 14,
+                                    denom: 1,
+                                },
+                                count: 5,
                             },
-                            second: Ratio {
-                                numer: 5,
-                                denom: 1,
-                            },
-                            last: Ratio {
-                                numer: 14,
-                                denom: 1,
-                            },
-                        },
+                        ),
                     ),
                     Value(
                         Numeric(

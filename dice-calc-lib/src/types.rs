@@ -20,6 +20,7 @@ use winnow::Parser;
 
 use crate::error::CalcError;
 use crate::parser::expr;
+use crate::parser::step_interval;
 
 pub type NumValue = num::Rational32;
 pub type CalcResult<T> = Result<T, CalcError>;
@@ -30,6 +31,20 @@ pub enum Value {
     Numeric(NumValue),
     #[display("\"{0}\"")]
     String(String),
+}
+
+impl TryFrom<&Value> for NumValue {
+    type Error = CalcError;
+
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Numeric(value) => Ok(value.clone()),
+            Value::String(str) => Err(CalcError::UnexpectedArgument {
+                arg: str.clone(),
+                details: "expected a numeric value".to_string(),
+            }),
+        }
+    }
 }
 
 impl From<usize> for Value {
@@ -493,14 +508,116 @@ pub enum Sides {
     RepeatedValue(Value, usize),
     #[display("{0}..{1}")]
     Sequence(NumValue, NumValue),
-    #[display("{first},{second}..{last}")]
-    StepSequence {
-        first: NumValue,
-        second: NumValue,
-        last: NumValue,
-    },
+    #[display("{0}")]
+    StepSequence(StepSequence),
     #[display("{0}; {1}")]
     Union(Box<Sides>, Box<Sides>),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StepSequence {
+    first: NumValue,
+    step: NumValue,
+    last: NumValue,
+    count: usize,
+}
+
+impl FromStr for StepSequence {
+    type Err = CalcError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        step_interval(s)
+            .map_err(|err| CalcError::UnexpectedArgument {
+                arg: s.to_string(),
+                details: err.to_string(),
+            })
+            .and_then(|(_, (begin, (second, end)))| StepSequence::new(begin, second, end))
+    }
+}
+
+impl StepSequence {
+    pub fn new(begin: NumValue, second: NumValue, end: NumValue) -> CalcResult<Self> {
+        let (step, first, last) = if begin < end {
+            (second - begin, begin, end)
+        } else {
+            (begin - second, end, begin)
+        };
+        let step_count = (last - first) / step;
+
+        if *step_count.denom() != 1 {
+            Err(CalcError::UnexpectedArgument {
+                arg: format!("{begin},{second}..{end}"),
+                details: format!(
+                    "interval (= {}) must contain a whole number of steps (= {step})",
+                    last - first
+                ),
+            })
+        } else if *step_count.numer() == 0 {
+            Err(CalcError::UnexpectedArgument {
+                arg: format!("{begin},{second}..{end}"),
+                details: format!(
+                    "interval (= {}) must contain at least one step",
+                    last - first
+                ),
+            })
+        } else {
+            Ok(StepSequence {
+                first,
+                step,
+                last,
+                count: *step_count.numer() as usize + 1,
+            })
+        }
+    }
+
+    pub fn count(&self) -> usize {
+        self.count
+    }
+
+    pub fn step(&self) -> NumValue {
+        self.step
+    }
+
+    pub fn first(&self) -> NumValue {
+        self.first
+    }
+
+    pub fn last(&self) -> NumValue {
+        self.last
+    }
+}
+
+impl Display for StepSequence {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{},{}..{}",
+            self.first,
+            self.first + self.step,
+            self.last
+        )
+    }
+}
+
+impl TryFrom<(NumValue, (NumValue, NumValue))> for Sides {
+    type Error = CalcError;
+
+    fn try_from(
+        values: (NumValue, (NumValue, NumValue)),
+    ) -> Result<Self, Self::Error> {
+        StepSequence::try_from(values).map(Self::StepSequence)
+    }
+}
+
+
+impl TryFrom<(NumValue, (NumValue, NumValue))> for StepSequence {
+    type Error = CalcError;
+
+    fn try_from(
+        (begin, (second, end)): (NumValue, (NumValue, NumValue)),
+    ) -> Result<Self, Self::Error> {
+        StepSequence::new(begin, second, end)
+    }
 }
 
 impl From<Value> for Sides {

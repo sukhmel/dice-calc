@@ -8,7 +8,9 @@ use crate::types::Configuration;
 use crate::types::DotExpr;
 use crate::types::Expr;
 use crate::types::Filter;
+use crate::types::NumValue;
 use crate::types::Sides;
+use crate::types::StepSequence;
 use crate::types::Value;
 
 #[derive(Debug, Display)]
@@ -94,7 +96,25 @@ impl Sides {
                     height,
                 )]
             }
-            Sides::StepSequence { .. } => todo!("step sequence"),
+            Sides::StepSequence(seq) => {
+                let mut value = seq.first();
+
+                for _ in 1..seq.count() {
+                    result.push(value.clone().into());
+                    value += seq.step();
+                }
+                result.push(value.into());
+                vec![(
+                    format!(
+                        "all values from {} to {} inclusive with a step of {} (total {})",
+                        seq.first(),
+                        seq.last(),
+                        seq.step(),
+                        seq.count()
+                    ),
+                    height,
+                )]
+            }
             Sides::Union(left, right) => {
                 let first = left.compile_impl(height + 1)?;
                 let last = right.compile_impl(height + 1)?;
@@ -191,7 +211,8 @@ impl Compiled for DotExpr<Expr> {
             }
             DotExpr::Meet(expr) => {
                 let expr_output = expr.compile()?.with_added_height(1);
-                let mut description = vec![("intersect outcomes with configuration as a set".into(), 0)];
+                let mut description =
+                    vec![("intersect outcomes with configuration as a set".into(), 0)];
                 description.extend(expr_output.description);
                 (description, DotExpr::Meet(expr_output.value))
             }
@@ -310,7 +331,31 @@ impl Expr {
             Expr::Mul(_, _) => {
                 todo!()
             }
-            Expr::Div(_, _) => {
+            Expr::Div(left, right) => {
+                let left = left.compile_impl(height)?;
+                let right = right.compile_impl(height + 1)?;
+                if let Ok(num) = <Configuration as TryInto<Vec<Value>>>::try_into(left.value) {
+                    if let Ok(denom) = <Configuration as TryInto<Vec<Value>>>::try_into(right.value)
+                    {
+                        if let Some(Ok(num)) = num.get(0).map(NumValue::try_from) {
+                            if let Some(Ok(denom)) = denom.get(0).map(NumValue::try_from) {
+                                let mut description = left.description;
+                                description.push((
+                                                       format!("divide results of each outcome of configuration by results from"),
+                                                       height,
+                                                   ));
+                                description.extend(right.description);
+                                return Ok(Output {
+                                    description,
+                                    value: Configuration::simple_throw(
+                                        vec![(num / denom).into()],
+                                        1.into(),
+                                    )?,
+                                });
+                            }
+                        }
+                    }
+                }
                 todo!()
             }
             Expr::Parenthesis(expr) => expr.compile_impl(height)?,

@@ -16,6 +16,22 @@ fn test_single_num_value() {
 }
 
 #[test]
+fn test_div_num_value() {
+    let expr = "(11)/(10)".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - value 11 converted to a single-sided die thrown once\n \
+          - divide results of each outcome of configuration by results from\n   \
+            - value 10 converted to a single-sided die thrown once"
+    );
+
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        r#"{[11/10]x1}"#
+    )
+}
+
+#[test]
 fn test_count_single() {
     let expr = "2.count()".parse::<Expr>().unwrap();
     assert_eq!(
@@ -71,6 +87,61 @@ fn test_sides() {
     assert_eq!(
         expr.compile().unwrap().value().to_string().as_str(),
         r#"{[2]x1}"#
+    )
+}
+
+#[test]
+fn test_seq() {
+    let expr = "2..5".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - all values from 2 to 5 inclusive"
+    );
+
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        r#"{[2]x1, [3]x1, [4]x1, [5]x1}"#
+    )
+}
+#[test]
+fn test_seq_in_parens() {
+    let expr = "{2..5}".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - all values from 2 to 5 inclusive"
+    );
+
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        r#"{[2]x1, [3]x1, [4]x1, [5]x1}"#
+    )
+}
+
+#[test]
+fn test_step_seq() {
+    let expr = "{2, -2, .. -6}".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - all values from -6 to 2 inclusive with a step of 4 (total 3)"
+    );
+
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        r#"{[-6]x1, [-2]x1, [2]x1}"#
+    )
+}
+
+#[test]
+fn test_naked_step_seq() {
+    let expr = "2, -2 .. -6".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - all values from -6 to 2 inclusive with a step of 4 (total 3)"
+    );
+
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        r#"{[-6]x1, [-2]x1, [2]x1}"#
     )
 }
 
@@ -273,7 +344,6 @@ fn test_simple_throw_xor() {
         }"
     )
 }
-
 
 // xor with set rules, i.e. [2,2,3,4].xor([1,2,3,3]) = [1,2,3,4]
 #[test]

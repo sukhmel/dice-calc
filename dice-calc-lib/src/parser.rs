@@ -9,6 +9,7 @@ use crate::types::Operator;
 use crate::types::Sides;
 use crate::types::Value;
 use num::range;
+use num::rational::ParseRatioError;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::str::FromStr;
@@ -43,18 +44,8 @@ pub fn side(i: &str) -> IResult<&str, Sides> {
     combinator::delimited(
         spaces,
         combinator::alt((
-            combinator::separated_pair(number, separator(".."), number)
-                .map(|(start, stop)| Sides::Sequence(start, stop)),
-            combinator::separated_pair(
-                number,
-                separator(","),
-                combinator::separated_pair(number, separator(".."), number),
-            )
-            .map(|(first, (second, last))| Sides::StepSequence {
-                first,
-                second,
-                last,
-            }),
+            interval.map(|(start, stop)| Sides::Sequence(start, stop)),
+            step_interval.try_map(Sides::try_from),
             combinator::separated_pair(value, separator("x"), digit.try_map(FromStr::from_str))
                 .map(|(value, times)| Sides::RepeatedValue(value, times)),
             value.map(Sides::Value),
@@ -62,6 +53,19 @@ pub fn side(i: &str) -> IResult<&str, Sides> {
         spaces,
     )
     .parse_next(i)
+}
+
+pub fn interval(value: &str) -> IResult<&str, (NumValue, NumValue)> {
+    combinator::separated_pair(
+        number,
+        (combinator::opt(separator(",")), separator("..")),
+        number,
+    )
+    .parse_next(value)
+}
+
+pub fn step_interval(value: &str) -> IResult<&str, (NumValue, (NumValue, NumValue))> {
+    combinator::separated_pair(number, separator(","), interval).parse_next(value)
 }
 
 pub fn value(i: &str) -> IResult<&str, Value> {
@@ -75,10 +79,30 @@ pub fn value(i: &str) -> IResult<&str, Value> {
 pub fn number(i: &str) -> IResult<&str, NumValue> {
     combinator::delimited(
         spaces,
-        combinator::separated_pair(combinator::alt(("-", "+", spaces)), spaces, digit),
+        combinator::separated_pair(
+            combinator::alt(("-", "+", spaces)),
+            spaces,
+            combinator::alt((
+                combinator::separated_pair(digit, separator("."), digit).try_map(
+                    |(first, second)| {
+                        NumValue::from_str(
+                            &(first.to_string() + second + "/1" + &"0".repeat(second.len())),
+                        )
+                    },
+                ),
+                combinator::separated_pair(digit, separator("/"), digit).try_map(
+                    |(first, second)| {
+                        Ok::<_, ParseRatioError>(
+                            NumValue::from_str(first)? / NumValue::from_str(second)?,
+                        )
+                    },
+                ),
+                digit.try_map(NumValue::from_str),
+            )),
+        ),
         spaces,
     )
-    .try_map(|(sign, number): (&str, &str)| FromStr::from_str(&(sign.to_string() + number)))
+    .map(|(sign, number): (&str, NumValue)| if sign == "-" { number * -1 } else { number })
     .parse_next(i)
 }
 
@@ -173,7 +197,10 @@ pub fn dot_expr(i: &str) -> IResult<&str, DotExpr<Expr>> {
                 "except(",
                 combinator::terminated(expr, ")").map(DotExpr::Except),
             ),
-            combinator::preceded("not_eq(", combinator::terminated(expr, ")").map(DotExpr::NotEq)),
+            combinator::preceded(
+                "not_eq(",
+                combinator::terminated(expr, ")").map(DotExpr::NotEq),
+            ),
             combinator::preceded("xor(", combinator::terminated(expr, ")").map(DotExpr::Xor)),
             combinator::preceded(
                 "filter(",
@@ -369,7 +396,7 @@ fn atom(i: &str) -> IResult<&str, Expr> {
         combinator::alt((
             // HACK: we can't distinguish between naked sides with numeric content and expression with
             //       the same content. They also should be generally interchangeable in expressions.
-            side.map(|side| match side {
+            sides.map(|side| match side {
                 Sides::Value(value) if matches!(value, Value::Numeric(_)) => Expr::Value(value),
                 sides => Expr::Sides(sides),
             }),
