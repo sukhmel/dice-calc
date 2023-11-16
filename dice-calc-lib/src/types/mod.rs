@@ -553,9 +553,19 @@ impl TryFrom<Configuration> for Vec<Value> {
         value
             .as_sides
             .clone()
-            .ok_or_else(|| CalcError::UnexpectedArgument {
-                arg: value.to_string(),
-                details: "Not a set of sides".to_string(),
+            .ok_or(())
+            .or_else(|| {
+                value.events.iter().map(|outcome| {
+                    if let &[value] = outcome.throw.0.as_slice() {
+                        Ok(value.clone())
+                    } else {
+                        Err(CalcError::UnexpectedArgument {
+                            arg: value.to_string(),
+                            details: "Can't be represented as a set of sides".to_string(),
+                        })
+                    }
+                })
+                    .collect::<Result<Vec<Value>, CalcError>>()
             })
     }
 }

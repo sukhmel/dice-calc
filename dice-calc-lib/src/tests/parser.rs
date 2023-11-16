@@ -6,7 +6,7 @@ use crate::parser::interval;
 use crate::parser::number;
 use crate::parser::sides;
 use crate::parser::step_interval;
-use crate::types::StepSequence;
+use crate::r#mod::StepSequence;
 use winnow::Parser;
 
 #[test]
