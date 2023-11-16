@@ -38,6 +38,41 @@ fn test_div_num_value() {
 }
 
 #[test]
+fn test_div() {
+    let expr = "(2 d 4) / (1 d {2;4})".parse::<Expr>().unwrap();
+    assert_eq!(
+        expr.clone().help().unwrap().as_str(),
+        " - dice with sides [1..4] thrown 2 times\n \
+          - divide results of each outcome of configuration by results from\n   \
+            - dice with sides [2,4] thrown 1 times"
+    );
+    //                     2                                       4
+    //        1        2        3        4          1         2         3        4
+    // 1 | 1/2,1/2 | 1/2,1 | 1/2,3/2 | 1/2,2 ||  1/4,1/4 | 1/4,1/2 | 1/4,3/4 | 1/4,1 |
+    // 2 |  1, 1/2 |   1,1 |  1, 3/2 |  1, 2 ||  1/2,1/4 | 1/2,1/2 | 1/2,3/4 | 1/2,1 |
+    // 3 | 3/2,1/2 | 3/2,1 | 3/2,3/2 | 3/2,2 ||  3/4,1/4 | 3/4,1/2 | 3/4,3/4 | 3/4,1 |
+    // 4 |  2, 1/2 |   2,1 |  2 ,3/2 |  2, 2 ||   1, 1/4 |  1, 1/2 |  1, 3/4 |  1, 1 |
+    //
+    //        1  2  3  4  1  2  3  4  \
+    //    1   2  4  2  2  1  2  2  2   |
+    //    2   .  2  2  2  .  .  2  .   } only [3/2,3/2], [2,2], [1/4,1/4], and [3/4,3/4] have a
+    //    3   .  .  1  2  .  .  1  2   | single occurrence; only [1/2,1] has 4 occurrences; others
+    //    4   .  .  .  1  .  .  .  .  /  have 2 occurrences.
+    assert_eq!(
+        expr.compile().unwrap().value().to_string().as_str(),
+        "{[1/4, 1/4]x1, \
+          [1/4, 1/2]x2, [1/4, 3/4]x2, [1/4, 1]x2, [1/2, 1/2]x2, [1/2, 3/4]x2, \
+          [1/2, 1]x4, \
+          [1/2, 3/2]x2, [1/2, 2]x2, \
+          [3/4, 3/4]x1, \
+          [3/4, 1]x2, [1, 1]x2, [1, 3/2]x2, [1, 2]x2, \
+          [3/2, 3/2]x1, \
+          [3/2, 2]x2, [2, 2]x1\
+        }"
+    )
+}
+
+#[test]
 fn test_count_single() {
     let expr = "2.count()".parse::<Expr>().unwrap();
     assert_eq!(

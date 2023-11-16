@@ -10,9 +10,12 @@ use crate::types::Sides;
 use crate::types::Value;
 use num::range;
 use num::rational::ParseRatioError;
+use std::convert::Infallible;
 use std::fmt::Display;
+use std::num::ParseIntError;
 use std::ops::Deref;
 use std::str::FromStr;
+use std::string::ParseError;
 use std::sync::Arc;
 use winnow::ascii::alphanumeric1 as alphanumeric;
 use winnow::ascii::digit1 as digit;
@@ -34,10 +37,16 @@ pub fn string(i: &str) -> IResult<&str, &str> {
 }
 
 pub fn sides(i: &str) -> IResult<&str, Sides> {
+    let (i, braces) = combinator::opt(separator("{")).parse_next(i)?;
     let (i, initial) = side(i)?;
     let (i, remainder) = combinator::repeat(0.., combinator::preceded(";", side)).parse_next(i)?;
-
-    Ok((i, fold_sides(initial, remainder)))
+    if braces.is_some() {
+        combinator::terminated("}", spaces)
+            .parse_next(i)
+            .map(|(i, _)| (i, fold_sides(initial, remainder)))
+    } else {
+        Ok((i, fold_sides(initial, remainder)))
+    }
 }
 
 pub fn side(i: &str) -> IResult<&str, Sides> {
@@ -369,7 +378,7 @@ pub fn expr(i: &str) -> IResult<&str, Expr> {
     Ok((i, expr))
 }
 
-fn term(i: &str) -> IResult<&str, Expr> {
+pub fn term(i: &str) -> IResult<&str, Expr> {
     let result = factor.parse_next(i);
     let (i, initial) = result?;
     let (i, remainder) = combinator::repeat(0.., |i| {
@@ -400,14 +409,28 @@ fn atom(i: &str) -> IResult<&str, Expr> {
     combinator::delimited(
         spaces,
         combinator::alt((
+            combinator::separated_pair(
+                digit,
+                separator("d"),
+                (
+                    combinator::not( sides.try_map(|sides| match sides {
+                        Sides::Value(Value::Numeric(_)) => Err(()),
+                        _multiple_or_non_numeric => Ok(())
+                    })),
+                    digit,
+                ),
+            )
+            .try_map(|(times, ((), dice))| {
+                Ok::<_, ParseIntError>(Expr::ThrowDie(times.parse()?, dice.parse()?))
+            }),
             // HACK: we can't distinguish between naked sides with numeric content and expression with
             //       the same content. They also should be generally interchangeable in expressions.
             sides.map(|side| match side {
-                Sides::Value(value) if matches!(value, Value::Numeric(_)) => Expr::Value(value),
+                Sides::Value(value @ Value::Numeric(_)) => Expr::Value(value),
                 sides => Expr::Sides(sides),
             }),
             number.map(|number| Expr::Value(Value::Numeric(number))),
-            combinator::delimited("{", sides, "}").map(Expr::Sides),
+            value.map(Sides::Value).map(Expr::Sides),
             throw_expr,
             parens(expr, Expr::Parenthesis),
         )),

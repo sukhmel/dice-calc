@@ -1,3 +1,5 @@
+mod division;
+
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
@@ -92,7 +94,7 @@ impl ApplyOutput {
     fn single(value: Value) -> Vec<Self> {
         vec![Self {
             throw: vec![value],
-            count: BigUint::from(1u8),
+            count: BigUint::one(),
         }]
     }
 
@@ -138,7 +140,7 @@ impl Throw {
                     .iter()
                     .map(|outcome| ApplyOutput::new(outcome.throw.0.clone(), outcome.count.clone()))
                     .collect()),
-                _ => Ok(vec![ApplyOutput::new(self.0, BigUint::from(1u8))]),
+                _ => Ok(vec![ApplyOutput::new(self.0, BigUint::one())]),
             };
         }
         let result = match function {
@@ -291,7 +293,7 @@ impl From<Value> for Outcome {
     fn from(value: Value) -> Self {
         Self {
             throw: Throw::new(vec![value]),
-            count: BigUint::from(1u8),
+            count: BigUint::one(),
         }
     }
 }
@@ -394,7 +396,7 @@ impl Configuration {
         Self {
             as_sides: Some(vec![value.clone()]),
             events: vec![value.into()],
-            total_outcomes: BigUint::from(1u8),
+            total_outcomes: BigUint::one(),
         }
     }
 
@@ -410,17 +412,11 @@ impl Configuration {
     }
 
     /// Configuration produced by throwing a specified die several times
-    pub fn simple_throw(mut sides: Vec<Value>, times: NumValue) -> CalcResult<Self> {
+    pub fn simple_throw(mut sides: Vec<Value>, times: usize) -> CalcResult<Self> {
         sides.sort();
-        if *times.denom() != 1 || *times.numer() < 0 {
-            return Err(CalcError::UnexpectedArgument {
-                arg: times.to_string(),
-                details: "can only perform throws with positive whole numbers".to_string(),
-            });
-        }
         let result = {
             let mut prev = vec![vec![]];
-            for _ in 0..*times.numer() {
+            for _ in 0..times {
                 let mut next = vec![];
                 for v in prev {
                     for side in &sides {
@@ -441,7 +437,7 @@ impl Configuration {
                 values.sort();
                 Outcome {
                     throw: Throw::new(values),
-                    count: BigUint::from(1u8),
+                    count: BigUint::one(),
                 }
             })
             .collect();
@@ -477,7 +473,7 @@ impl Configuration {
 
     /// Sample from the configuration `count` times without exhausting it (may produce duplicates)
     fn sample(self, count: usize) -> CalcResult<Self> {
-        if self.total_outcomes == 0u8.into() {
+        if self.total_outcomes.is_zero() {
             return Ok(Configuration::empty());
         }
 
@@ -489,16 +485,16 @@ impl Configuration {
         let mut rng = rand::thread_rng();
         for _ in 0..count {
             let mut outcome = self.events[distribution.sample(&mut rng)].clone();
-            outcome.count = 1u8.into();
+            outcome.count = BigUint::one();
             result.push(outcome);
         }
 
-        return Ok(Configuration::new(result, (count).into()));
+        return Ok(Configuration::new(result, count.into()));
     }
 
     /// Sample from the configuration `count` times exhausting it
     fn rand(self, count: usize) -> CalcResult<Self> {
-        if self.total_outcomes == 0u8.into() {
+        if self.total_outcomes.is_zero() {
             return Ok(Configuration::empty());
         }
 
@@ -519,7 +515,7 @@ impl Configuration {
                 CalcError::InternalError(format!("Error in weighted sampling: {err:#}"))
             })?;
             let mut outcome = self.events[i].clone();
-            outcome.count = 1u8.into();
+            outcome.count = BigUint::one();
             result.push(outcome);
         }
 
@@ -553,19 +549,9 @@ impl TryFrom<Configuration> for Vec<Value> {
         value
             .as_sides
             .clone()
-            .ok_or(())
-            .or_else(|| {
-                value.events.iter().map(|outcome| {
-                    if let &[value] = outcome.throw.0.as_slice() {
-                        Ok(value.clone())
-                    } else {
-                        Err(CalcError::UnexpectedArgument {
-                            arg: value.to_string(),
-                            details: "Can't be represented as a set of sides".to_string(),
-                        })
-                    }
-                })
-                    .collect::<Result<Vec<Value>, CalcError>>()
+            .ok_or_else(|| CalcError::UnexpectedArgument {
+                arg: value.to_string(),
+                details: "Not a set of sides".to_string(),
             })
     }
 }
@@ -574,9 +560,9 @@ impl TryFrom<Configuration> for NumValue {
     type Error = CalcError;
 
     fn try_from(value: Configuration) -> Result<Self, CalcError> {
-        if value.total_outcomes == 1u8.into() && value.events.len() == 1 {
+        if value.total_outcomes.is_one() && value.events.len() == 1 {
             if let Some(num) = value.events.iter().next().and_then(|value| {
-                if value.count == 1u8.into() {
+                if value.count.is_one() {
                     if let Some(Value::Numeric(num)) = value.throw.0.iter().next() {
                         return Some(*num);
                     }
@@ -733,8 +719,10 @@ pub enum Expr {
     Sides(Sides),
     #[display("{0}.{1}")]
     Call(Box<Expr>, Box<DotExpr<Expr>>), // .X
-    #[display("{1} d {0}")]
-    Throw(Box<Expr>, Box<Expr>), // X d Y, throw(Y).limit(X)
+    #[display("throw({0}).limit({1})")]
+    Throw(Box<Expr>, Box<Expr>), // throw(X).limit(Y)
+    #[display("{0} d {1}")]
+    ThrowDie(usize, i32), // throw(1..Y).limit(X)
     #[display("throw({0}).until({1}).limit({2})")]
     Until(Box<Expr>, Box<Filter<Expr>>, Box<Expr>), // throw(X).until(Y).limit(Z)
     #[display("{0} + {1}")]
@@ -832,7 +820,7 @@ impl DotExpr<Configuration> {
             | DotExpr::Sum()
             | DotExpr::Prod()
             | DotExpr::Sample(_)
-            | DotExpr::Rand(_) => BigUint::from(1u8),
+            | DotExpr::Rand(_) => BigUint::one(),
             DotExpr::Retain(_) | DotExpr::Remove(_) | DotExpr::Filter(_) => todo!(),
             DotExpr::Deduplicate(conf)
             | DotExpr::Low(conf)

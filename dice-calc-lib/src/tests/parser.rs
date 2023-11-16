@@ -1,12 +1,12 @@
 use super::*;
-use crate::parser::basic_filter;
+use crate::parser::{basic_filter, term};
 use crate::parser::expr;
 use crate::parser::filter;
 use crate::parser::interval;
 use crate::parser::number;
 use crate::parser::sides;
 use crate::parser::step_interval;
-use crate::r#mod::StepSequence;
+use crate::types::StepSequence;
 use winnow::Parser;
 
 #[test]
@@ -62,6 +62,54 @@ fn test_number() {
             "",
             String::from("Ratio { numer: -1, denom: 10 }"),
             String::from("-1/10"),
+        ))
+    );
+}
+
+#[test]
+fn test_d_throw() {
+    assert_eq!(
+        term(r#"1 d 2"#).map(|(i, expr)| (i, format!("{expr:?}"), format!("{expr}"))),
+        Ok((
+            "",
+            String::from("ThrowDie(1, 2)"),
+            String::from("1 d 2")
+        ))
+    );
+    assert_eq!(
+        term(r#"1 d 2..4"#).map(|(i, expr)| (i, format!("{expr:?}"), format!("{expr}"))),
+        Ok((
+            "",
+            String::from("Throw(\
+                Sides(Sequence(Ratio { numer: 2, denom: 1 }, Ratio { numer: 4, denom: 1 })), \
+                Value(Numeric(Ratio { numer: 1, denom: 1 }))\
+            )"),
+            String::from("throw({2..4}).limit(1)")
+        ))
+    );
+    assert_eq!(
+        term(r#"1 d {2..4}"#).map(|(i, expr)| (i, format!("{expr:?}"), format!("{expr}"))),
+        Ok((
+            "",
+            String::from("Throw(\
+                Sides(Sequence(Ratio { numer: 2, denom: 1 }, Ratio { numer: 4, denom: 1 })), \
+                Value(Numeric(Ratio { numer: 1, denom: 1 }))\
+            )"),
+            String::from("throw({2..4}).limit(1)")
+        ))
+    );
+    assert_eq!(
+        term(r#"throw({2;4}).limit(1)"#).map(|(i, expr)| (i, format!("{expr:?}"), format!("{expr}"))),
+        Ok((
+            "",
+            String::from("Throw(\
+                Sides(Union(\
+                    Value(Numeric(Ratio { numer: 2, denom: 1 })), \
+                    Value(Numeric(Ratio { numer: 4, denom: 1 }))\
+                )), \
+                Value(Numeric(Ratio { numer: 1, denom: 1 }))\
+            )"),
+            String::from("throw({2; 4}).limit(1)")
         ))
     );
 }
@@ -695,27 +743,13 @@ fn test_expr() {
             ),
         ),
     ),
-    Throw(
-        Value(
-            Numeric(
-                Ratio {
-                    numer: 9,
-                    denom: 1,
-                },
-            ),
-        ),
-        Value(
-            Numeric(
-                Ratio {
-                    numer: 5,
-                    denom: 1,
-                },
-            ),
-        ),
+    ThrowDie(
+        5,
+        9,
     ),
 )"#
             .into(),
-            "throw({1..4; 2,5..14; 0}).until(< 3).limit(5) + 2 d {1..6} + 5 d 9".into()
+            "throw({1..4; 2,5..14; 0}).until(< 3).limit(5) + throw({1..6}).limit(2) + 5 d 9".into()
         ))
     )
 }

@@ -1,5 +1,7 @@
 use crate::error::CalcError;
 use itertools::Itertools;
+use num::BigUint;
+use num::FromPrimitive;
 use parse_display::Display;
 
 use crate::types::BasicFilter;
@@ -310,7 +312,15 @@ impl Expr {
                 let what = what.compile()?;
                 let times = times.compile()?;
                 if let Ok(sides) = <Configuration as TryInto<Vec<Value>>>::try_into(what.value) {
-                    if let Ok(times) = times.value.try_into() {
+                    if let Ok(times) = <Configuration as TryInto<NumValue>>::try_into(times.value) {
+                        if *times.denom() != 1 || *times.numer() < 1 {
+                            return Err(CalcError::UnexpectedArgument {
+                                arg: times.to_string(),
+                                details: "can only perform throws with positive whole numbers"
+                                    .to_string(),
+                            });
+                        }
+                        let times = *times.numer() as usize;
                         return Ok(Output {
                             description: vec![(
                                 format!(
@@ -324,6 +334,18 @@ impl Expr {
                     }
                 }
                 todo!()
+            }
+            Expr::ThrowDie(times, what) => {
+                return Ok(Output {
+                    description: vec![(
+                        format!("dice with sides [1..{what}] thrown {times} times"),
+                        height,
+                    )],
+                    value: Configuration::simple_throw(
+                        (1..what + 1).map(Value::from).collect(),
+                        times,
+                    )?,
+                });
             }
             Expr::Until(_, _, _) => {
                 todo!()
@@ -340,29 +362,13 @@ impl Expr {
             Expr::Div(left, right) => {
                 let left = left.compile_impl(height)?;
                 let right = right.compile_impl(height + 1)?;
-                if let Ok(num) = <Configuration as TryInto<Vec<Value>>>::try_into(left.value) {
-                    if let Ok(denom) = <Configuration as TryInto<Vec<Value>>>::try_into(right.value)
-                    {
-                        if let Some(Ok(num)) = num.get(0).map(NumValue::try_from) {
-                            if let Some(Ok(denom)) = denom.get(0).map(NumValue::try_from) {
-                                let mut description = left.description;
-                                description.push((
-                                                       format!("divide results of each outcome of configuration by results from"),
-                                                       height,
-                                                   ));
-                                description.extend(right.description);
-                                return Ok(Output {
-                                    description,
-                                    value: Configuration::simple_throw(
-                                        vec![(num / denom).into()],
-                                        1.into(),
-                                    )?,
-                                });
-                            }
-                        }
-                    }
-                }
-                todo!()
+                let mut description = left.description;
+                description.push((
+                    format!("divide results of each outcome of configuration by results from"),
+                    height,
+                ));
+                description.extend(right.description);
+                (left.value / right.value).map(|value| Output { description, value })?
             }
             Expr::Parenthesis(expr) => expr.compile_impl(height)?,
         };
